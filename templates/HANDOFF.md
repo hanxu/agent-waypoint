@@ -18,8 +18,11 @@
 ## Intentionally Dirty（未提交但属故意的文件）
 - 无
 
+## 关联项目（全局模式且锚定了项目时填，无则写"无"）
+- 无
+
 ## 关键坑与约束（≤5 条）
 -
 
 ## 恢复入口
-- 必读：.waypoint/TASK.md、.waypoint/PLAN.md、git log -10
+- 必读：同目录 TASK.md、PLAN.md；git log（项目模式看项目仓库，全局模式看全局库）

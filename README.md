@@ -10,21 +10,32 @@ Waypoint 是一个跨 AI 客户端的任务接续协议。你在 Qoder 里跑到
 ## 特性
 
 - 📄 **纯 Markdown 协议**，零依赖，任何客户端通用；AGENTS.md 薄启动文件 + `.waypoint/PROTOCOL.md` 完整协议两层化
+- 🏠 **两种部署模式**：项目模式（状态与代码原子提交）或全局模式（`~/.waypoint` 机器级任务库，多任务并存，不绑定项目，目录可指定）
 - 🔁 **两个固定仪式**：接管（Resume）与交出（Checkpoint），由触发词显式驱动，交接前强制复述状态
 - 🚫 **Do Not Redo / Intentionally Dirty**：明确告诉下一个 agent 别重做什么、哪些文件故意不提交
 - 🔒 **git 原子提交**：checkpoint 时状态文件与代码一并 commit，代码是最终真相
-- 🧩 **可选自动化**：无依赖 shell 脚本（init/checkpoint/status）预填交接模板；MCP server 演进路线（`get_state` / `checkpoint` / `lock`）
+- 🧩 **可选自动化**：无依赖 shell 脚本（init/checkpoint/status/new/tasks/switch）预填交接模板；MCP server 演进路线（`get_state` / `checkpoint` / `lock`）
 - 🤖 **Agent 可自装**：`INSTALL_FOR_AGENTS.md` 让任何 agent 按指令完成安装
 
 ## 快速开始
 
+全局模式（推荐个人使用——全机一份任务库，任何客户端、任何目录都能「继续任务」）：
+
 ```bash
 git clone https://github.com/hanxu/agent-waypoint.git
+bash agent-waypoint/scripts/waypoint.sh init-home          # 建库 ~/.waypoint（--home 可指定）
+bash agent-waypoint/scripts/waypoint.sh new 我的任务        # 立任务
+# 把 ~/.waypoint/RULES_SNIPPET.md 的内容贴进 Qoder/Trae 的用户级规则（一次）
+```
+
+项目模式（状态与某个代码仓库绑定）：
+
+```bash
 cd your-project
 bash /path/to/agent-waypoint/scripts/waypoint.sh init --target .
 ```
 
-然后在任何客户端里立任务（填 `.waypoint/TASK.md` + `PLAN.md`），干活，说「checkpoint」交接，换客户端说「继续任务」接力。详见 [QUICKSTART.md](./QUICKSTART.md) 与协议本体 [templates/PROTOCOL.md](./templates/PROTOCOL.md)。
+然后在任何客户端里立任务，干活，说「checkpoint」交接，换客户端说「继续任务」接力。详见 [QUICKSTART.md](./QUICKSTART.md) 与协议本体 [templates/PROTOCOL.md](./templates/PROTOCOL.md)。
 
 ## 目录
 

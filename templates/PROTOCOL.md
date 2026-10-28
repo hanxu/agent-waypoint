@@ -3,6 +3,18 @@
 > 本文件是 Waypoint 协议的单一真相源（single source of truth）。
 > 项目根目录的 `AGENTS.md` 只是本协议的薄摘要；两者冲突时以本文件为准。
 
+## 0. 部署模式
+
+两种部署模式，仪式与文件模板完全一致，仅状态存放位置和注入方式不同：
+
+| | 项目模式（§2-§8） | 全局模式（§9） |
+|---|---|---|
+| 适用 | 任务绑定某个代码仓库 | 全机一份任务库，任务不绑定项目（调研/跨项目事务/个人待办） |
+| 状态位置 | 项目内 `.waypoint/` | `~/.waypoint/tasks/<任务短名>/`（`--home`/`WAYPOINT_HOME` 可改） |
+| 注入 | 项目根 AGENTS.md | 客户端**用户级规则**（RULES_SNIPPET.md，一次配置全项目生效） |
+| 多任务 | 一仓库一任务 | 多任务并存，CURRENT 指针 + switch |
+| git 真相 | 项目仓库（状态与代码原子绑定） | 全局库自身是 git 仓库；代码状态靠 HANDOFF/JOURNAL 锚定项目 HEAD |
+
 ## 1. 问题与思路
 
 一个跑了 N 轮迭代的任务，其「进度」由四部分组成：
@@ -202,5 +214,49 @@ Waypoint 的做法：**把右侧三项外化为仓库内的纯文本文件**，�
 | 状态文件与代码漂移 | checkpoint 强制绑 commit；git 为最终真相 |
 | HANDOFF 越写越长 | 硬性一页限制，溢出沉入 JOURNAL |
 | Agent 忽略协议 | 触发词显式触发；AGENTS.md 两层化（薄摘要+深协议）提高遵守率 |
-| 两客户端并行 | LOCK 互斥；发现他人锁先询问 |
-| 敏感信息入库 | `.waypoint/` 加入 .gitignore，退化为本机共享 |
+| 两客户端并行 | LOCK 互斥（全局模式按任务隔离，不同任务可并行）；发现他人锁先询问 |
+| 敏感信息入库 | 项目模式：`.waypoint/` 加 .gitignore；全局模式：库不 push 到公共远程 |
+
+## 9. 全局模式（home 模式）
+
+适用：任务不绑定单一项目，或希望全机只维护一份任务库。默认目录 `~/.waypoint`，`init-home --home <目录>` 或环境变量 `WAYPOINT_HOME` 可指定。
+
+### 9.1 目录结构
+
+```
+~/.waypoint/                    # 全局库（自身是 git 仓库）
+├── PROTOCOL.md                 # 本协议副本
+├── RULES_SNIPPET.md            # ⭐ 注入文本——贴进各客户端用户级规则（路径权威记录）
+├── CURRENT                     # 当前任务指针（内容为任务目录名）
+├── tasks/<任务短名>/            # 每个任务：TASK/PLAN/HANDOFF/JOURNAL/DECISIONS.md
+│   ├── ... 五个状态文件
+│   ├── project.txt             # 可选：锚定的项目仓库绝对路径（首行）
+│   └── LOCK                    # 锁（按任务隔离，不同任务可并行）
+└── archive/                    # 完结任务归档（<完结日期>-<任务短名>/）
+```
+
+### 9.2 命令（scripts/waypoint.sh）
+
+```
+init-home [--home D]                     建库（目录 + git init + 生成 RULES_SNIPPET）
+new <短名> [--project <路径>]            新任务并设为当前（--project 锚定项目仓库）
+tasks                                    列出任务（* 标当前，锁定任务带标注）
+switch <短名>                            切换当前任务（自动 commit CURRENT）
+status --task [短名]                     任务状态（含项目锚定信息）
+checkpoint --task [短名] [--allow-dirty] 交接事实预填（全局库 git + 项目 HEAD）
+```
+
+### 9.3 仪式差异（相对 §3）
+
+- **接管**：默认接管 CURRENT 指向的任务；用户说「切换任务 <短名>」先 switch 再接管
+- **交出**：更新任务文件 → 若有 project.txt，在 JOURNAL 记录该项目的分支与 HEAD（锚定代码状态）→ 在**全局库**内 `git add -A && git commit -m "waypoint: <摘要>"` → 删本任务 LOCK
+- **归档**：`mv tasks/<短名> archive/<完结日期>-<短名>` 后在全局库 commit
+- 关联项目的**代码提交仍在项目仓库正常进行**；全局库只存任务叙事状态，两者靠 JOURNAL 记录的项目 HEAD 锚定
+
+### 9.4 注入（关键差异）
+
+项目模式靠项目 AGENTS.md；全局模式注入进客户端的**用户级/全局规则**（对所有会话生效）：
+
+- 把 `RULES_SNIPPET.md` 的内容贴进：Qoder 的用户级 Rules / Trae 的 `user_rules.md` / 其他客户端的全局指令
+- RULES_SNIPPET 中记录的数据目录路径是**权威记录**，agent 不得凭记忆猜路径
+- 兜底：新会话粘贴 bootstrap——「接管任务：数据目录见全局规则（默认 ~/.waypoint），读 CURRENT 指向任务的 HANDOFF.md，复述状态后继续，遵守 ~/.waypoint/PROTOCOL.md」
