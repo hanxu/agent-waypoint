@@ -5,17 +5,30 @@
 全机一份任务库（默认 `~/.waypoint`），任务不绑定项目，在任何客户端、任何目录说「继续任务」都接得上。
 
 ```bash
-# 1. 建库（--home 可指定目录；此后所有全局命令都可用 WAYPOINT_HOME 或 --home 覆盖）
-bash /path/to/agent-waypoint/scripts/waypoint.sh init-home
+WP=/path/to/agent-waypoint/scripts/waypoint.sh
 
-# 2. 立任务（--project 可选：锚定一个代码仓库，checkpoint 时会记录该项目 HEAD）
-bash /path/to/agent-waypoint/scripts/waypoint.sh new 优化网关 [--project ~/work/tsy-gateway]
+# 1. 建库（--home 可指定目录；也可用环境变量 WAYPOINT_HOME）
+bash "$WP" init-home
+
+# 2. 开一条任务线，并为当前这个端开会话（--project 可选：锚定代码仓库，checkpoint 时记录其 HEAD）
+bash "$WP" new 优化网关 --client qoder [--project ~/work/tsy-gateway]
 
 # 3. 注入（一次）：把 ~/.waypoint/RULES_SNIPPET.md 的内容贴进 Qoder 用户级 Rules / Trae user_rules.md
+#    并在规则里固定本端的 --client 名字（下文均用同一个名字，否则会给同一端误开新会话）
 ```
 
-日常循环：任何客户端说「继续任务」接管 → 干活 → 「checkpoint」交出（它在全局库 commit）。
-多任务：`waypoint.sh tasks` 列出，`waypoint.sh switch <短名>` 切换，或直接对客户端说「切换任务 <短名>」。
+日常循环：在任何端说「继续任务」→ 它先 `resume` 列出候选让你选 → 接管后复述状态 → 干活 → 「checkpoint」交出（只写本端会话，并在全局库 commit）。
+
+```bash
+bash "$WP" board          # ⭐ 各端任务总览：进度、多久没动、谁拿着锁（--by-client 看端视图，--json 给面板）
+bash "$WP" dash --open    # 🖥️ 页面看板：生成单文件 HTML 并打开（不用终端也能看）
+bash "$WP" dash --serve   # 想让它自己跳动：起 127.0.0.1:8787 本地服务，页面每 5 秒自动刷新
+bash "$WP" resume         # 列出可接管会话（多个端交过手 = 多个候选）
+bash "$WP" resume 优化网关/qoder --client trae   # 接手：trae 无会话则从 qoder 的快照继承一份
+bash "$WP" tasks / switch <线> [端] / status / who / lock / unlock / migrate
+```
+
+多客户端并行同一条线是可以的：每个端各一份 PLAN/HANDOFF/JOURNAL，锁按「线/端」隔离，互不覆盖。想合并回一份？让一个端接管后把其它端的 JOURNAL 条目抄进来，再归档其余会话（`mv tasks/<线>/sessions/<端> archive/`）。
 
 ## 路线 B：项目模式
 
@@ -51,7 +64,9 @@ bash /path/to/agent-waypoint/scripts/waypoint.sh init --target /path/to/your-pro
 
 ## 收尾（两种模式相同）
 
-DoD 全部通过后说「任务完成」：项目模式归档进 `.waypoint/archive/`；全局模式 `mv tasks/<短名> archive/<完结日期>-<短名>` 后在全局库 commit。
+DoD 全部通过后说「任务完成」：项目模式归档进 `.waypoint/archive/`；全局模式 `mv tasks/<线> archive/<完结日期>-<线>`（连 sessions/ 一起）后在全局库 commit。
+
+改过代码后想确认没弄坏脚本：`bash tests/smoke.sh`（全部在临时目录跑，不碰你的真实库）。
 
 ## 客户端不支持用户级规则/AGENTS.md？
 
