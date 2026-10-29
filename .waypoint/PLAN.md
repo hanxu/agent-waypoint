@@ -33,3 +33,15 @@
 - [x] 文档同步（README / QUICKSTART / PROTOCOL / AGENTS / INSTALL_FOR_AGENTS / comparison）
 - [x] 提交本轮改动（代码 + 状态文件同一提交，父提交 1da636e）
 - [ ] 真实库 `~/.waypoint` 仍是旧版初始化：缺 locks/repos.txt，PROTOCOL.md 与 RULES_SNIPPET.md 为旧版，需刷新（等用户确认）
+
+## 6. 服务化改造（迭代 4，用户要求：看板是服务，不是静态页）
+
+- [x] `dash` 默认改为起服务；静态降级为 `dash export`（`dash --out` 仍自动走导出）
+- [x] `serve.py` 重写：SSE 推送（`/api/events`，连上先推一帧，之后每 5 秒）、采集缓存 2 秒（多页面也只跑一次 board）、`/api/board`、`/api/ping`
+- [x] 端口被占用时自动 +1 试探，实际端口写入 `--port-file`
+- [x] `--daemon` 后台常驻（`dash.run` 存 pid+端口、`dash.log` 存日志，两者均 exclude）+ `dash stop` / `dash status`
+- [x] 单实例：已有实例运行时不再新开（pid 文件只有一个，多开会把前一个变孤儿）
+- [x] 页面改为 EventSource 订阅，去掉轮询；离线打开时降级为快照并显示“离线快照”
+- [x] 推送更新时抽屉内容跟随刷新（`fillDrawer` 抽函数），焦点仍按 `data-key` 保持
+- [x] 测试 93 → 104（新增第 10 组：daemon/pid 文件/单实例/API/SSE 首帧/运行期不脏库/stop）
+- [x] 浏览器实测：同一次导航内行数 55 → 64（30 秒），meta 时间持续推进，console 0 错，407px 无溢出

@@ -56,7 +56,7 @@ echo '.waypoint/locks/' >> "$(git -C <目标项目> rev-parse --show-toplevel)/.
 ls <目标项目>/.waypoint/          # 应看到 6 个模板文件 + archive/ + locks/
 bash <kit路径>/scripts/waypoint.sh status --target <目标项目>   # 应输出初始化状态（零提交仓库也不报错）
 bash <kit路径>/scripts/waypoint.sh board                        # 若本机有全局库，应列到刚装的仓库
-bash <kit路径>/scripts/waypoint.sh dash --out /tmp/wp.html      # 页面看板应能生成（别用 --open 打扰用户）
+bash <kit路径>/scripts/waypoint.sh dash export --out /tmp/wp.html   # 应能导出离线快照（别用 --open 打扰用户）
 ```
 
 然后向用户报告：协议已安装，并**提醒先提交安装产生的文件**（`git add -A && git commit`），否则第一次 checkpoint 会被判为脏树。立任务的方式是填 `.waypoint/TASK.md` 和 `PLAN.md`，之后在任何客户端说「继续任务」即可接力。
@@ -74,7 +74,7 @@ bash <kit路径>/scripts/waypoint.sh new <任务线> --client <本端固定名>
 - 把生成的 `RULES_SNIPPET.md` 内容贴进客户端**用户级/全局规则**，并在规则里固定本端的 `--client` 名字（每个端一个、不变）
 - 旧版单文件布局的库：跑一次 `waypoint.sh migrate` 归位到 `tasks/<线>/sessions/<端>/`
 - 验收：`waypoint.sh board` 能列出会话；另一个端跑 `waypoint.sh resume` 应看到多个候选
-- 用户嫌命令行不直观时，给页面看板：`dash --open` 生成 `~/.waypoint/dashboard.html` 并打开（零依赖）；想让它自己刷新就用 `dash --serve`（`127.0.0.1:8787`，需 python3）
+- 用户嫌命令行不直观时，给看板服务：`dash --open` 起 `127.0.0.1:8787` 并开浏览器（需 python3，仅标准库），页面由服务端 SSE 推送、自己会刷新；想关掉终端也保留就用 `dash --daemon`，停用 `dash stop`。只有需要转发/离线看时才用 `dash export`
 
 ## 禁止事项
 

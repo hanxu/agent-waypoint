@@ -1,52 +1,62 @@
-# 交接快照 — 2026-10-29T11:02:41+0800 by qoder
+# 交接快照 — 2026-10-29T11:45:00+0800 by qoder
 
 ## 任务一句话
 
-把 waypoint 从"只有脚本"推进到"有页面看板的个人工作台"：`board --json` 保持唯一数据源，`dash` 把它渲染成可双击打开的单文件页面。
+把 waypoint 从"只有脚本"推进到"有页面看板的个人工作台"：`board --json` 保持唯一数据源，`dash` 起本地看板**服务**（HTTP + SSE 推送），页面自己跟着数据变。
 
 ## 当前状态
 
-功能完成、验证通过、**已落盘**。本轮合成一个提交（父提交 `1da636e`，本提交 hash 见 `git log -1`）；提交后工作区干净，`status --target .` 显示计划 18/19（剩一项等你决策）。
+看板已从"静态页为主"改成"服务为主"，并通过浏览器实测：**页面不刷新也会自动更新**。提交后工作区干净。
 
-最近一次验证（本机 macOS / bash 3.2 + BSD 工具链）：
+最近一次验证（macOS / bash 3.2 + BSD 工具链 / python3 标准库）：
 
 ```
-bash tests/smoke.sh                → 通过 93 / 失败 0
-bash scripts/waypoint.sh help      → 22 行（不再泄漏脚本正文）
-bash scripts/waypoint.sh dash --out /tmp/x.html → 生成 ~28KB，占位符 0 残留
-bash scripts/waypoint.sh checkpoint --target . --allow-dirty --client qoder → 事实输出正常
+bash tests/smoke.sh                                  → 通过 104 / 失败 0（10 组）
+dash --daemon --port 8799 && curl /api/ping          → {"ok": true, "home": "..."}
+curl -N /api/events                                  → retry: 2000 + data: {...}
+curl -s http://127.0.0.1:8799/ | grep wp-data        → 首屏已注入 JSON，占位符 0 残留
+dash status                                          → 运行中 + 健康检查 OK
+dash stop                                            → 已停止（pid/端口清理）
+端口 8799 被占用时再次起服务                          → 自动落到 8800
 ```
 
-浏览器三轮回访（Playwright/CDP 视口 407 宽与 1440 宽）：5 个统计块、3 张任务线卡、4 个会话行；筛选「被锁」1 行、「陈旧」1 行；搜索「支付」1 行；抽屉字段齐全且命令可复制；407px 下 `scrollWidth == clientWidth`；`--serve` 下 5 秒轮询跨轮询保持键盘焦点；console 0 报错。
+浏览器验收（同一次导航内，`performance.getEntriesByType('navigation').length == 1`，未刷新）：
+
+- 30 秒内会话行 **55 → 64**（后台每 5 秒写一条），meta 快照时间 11:41:30 → 11:42:13 持续前进
+- 顶部按钮「实时 · 重连」、页脚「由本机看板服务推送（SSE，每 5 秒一次）」、meta 带「实时推送」
+- 抽屉打开期间数据变化 → 内容跟着刷新，焦点仍在 `#d-close`；Escape 后焦点回到 `.row`
+- console error 0；`/api/events` 响应头 `text/event-stream`
+- 407px 视口 `scrollWidth == clientWidth == 407`
 
 ## 已完成（≤5 条）
 
-- `scripts/waypoint.sh`：新增 `dash`（`--out/--open/--serve/--port`），`board --json` 补 `title/parent/journal/dir/project/cur/branch/stale_days`，`json_escape` 转义 `<`/`>`
-- `dashboard/index.html`：单文件页面看板（统计/分组卡片/进度条/筛选/搜索/详情抽屉/可复制命令/空态/暗亮自适应）
-- `dashboard/serve.py`：python3 标准库本地服务，`/` 现渲染、`/api/board` 现算，仅监听 127.0.0.1
-- `tests/smoke.sh`：从 77 → 93 项断言，新增页面看板组与三条反直觉回归
-- 文档同步：README / QUICKSTART / PROTOCOL（§6 §7 §9.2 §9.3） / AGENTS 触发词 / INSTALL_FOR_AGENTS / docs/comparison.md
+- `dash` 默认起服务（`127.0.0.1:8787`，端口占用自动 +1），页面用 `EventSource` 订阅 `/api/events`，服务端每 5 秒推送一次 `board --json`；采集缓存 2 秒 → 多标签页只跑一次子进程
+- `dash --daemon` 后台常驻 + `dash stop` + `dash status`（`dash.run` 存 pid/端口、`dash.log` 存日志，均已 exclude）；`dash_running` 强制单实例（否则 pid 文件互相覆盖、前者变孤儿）
+- `dash export`（及 `dash --out`）保留为次要形态：注入式单文件 HTML，供转发/离线/`file://` 查看，页面自动显示「离线快照」
+- 页面：抽屉内容抽成 `fillDrawer` 随推送刷新，焦点按 `data-key` 保持；轮询逻辑彻底移除
+- 测试 93 → 104（第 10 组覆盖 daemon/pid 文件/单实例/`/api/board`/`/` 注入/SSE 首帧/运行期不脏库/stop）；文档与协议副本同步
 
 ## 下一步（具体到可直接执行的第一条指令）
 
-1. **等用户决策（阻塞项）**：是否刷新真实库 `~/.waypoint`——它是旧版初始化，缺 `locks/` `repos.txt` `CURRENT`，且 `PROTOCOL.md` / `RULES_SNIPPET.md` 是旧版（没有“resume 先列候选不得代选”等新约定）。刷新必须重新生成 `RULES_SNIPPET.md`（含库路径与脚本路径）而非照抄模板
-2. 同样等决策：是否在 `~/.waypoint` 建第一条真实任务线（`new <线> --client <端>`）并出真实数据版 `dash`
-3. 若继续开发：先跑 `bash tests/smoke.sh` 确认 93 项仍全绿，再动 `cmd_dash` / `dashboard/index.html`
-4. 欠账（已记入 docs/comparison.md）：`validate` doctor、带版本号的 `--upgrade`
-5. 可选：真实客户端验证矩阵（Qoder / WorkBuddy / Trae）——用 `--client` 各跑一轮接管/交出
+1. 直接看效果：`bash scripts/waypoint.sh dash --open`（起服务并开浏览器；关终端就停。想常驻用 `dash --daemon`）
+2. 等用户决策（阻塞项）：是否刷新真实库 `~/.waypoint`——旧版初始化，缺 `locks/` `repos.txt` `CURRENT`，`PROTOCOL.md` / `RULES_SNIPPET.md` 均为旧版（无「resume 先列候选不得代选」等新约定）。刷新须重新生成 `RULES_SNIPPET.md`（内含库路径与脚本路径），不能照抄模板
+3. 同样等决策：是否在 `~/.waypoint` 建第一条真实任务线，让看板出现真正的会话行
+4. 若继续开发：先 `bash tests/smoke.sh` 确认 104 项仍全绿，再动 `dashboard/serve.py` / `cmd_dash`
+5. 欠账（记入 docs/comparison.md）：`validate` doctor、带版本号的 `--upgrade`
 
 ## Do Not Redo（已做过、勿重做勿回退的工作）
 
-- 不要再用 awk「整行替换」注入占位符：`__WAYPOINT_DATA__` 与 `<script id="wp-data">` 同行，必须 substr 级替换
-- 不要在 `usage()` 里用未锚定的 `/# USAGE-BEGIN/,/# USAGE-END/p`：函数自身定义行会重新开启范围
-- 不要用 `printf | grep -q` 做断言：pipefail 下会因 SIGPIPE 误报
-- 不要再让 `dash` 产物落在库内而不 exclude：会让 `checkpoint` 判脏
-- 不要用 `git reset --hard 1da636e` 清历史：会丢工作区改动，用 `--soft`
-- 不要在页面里新增数据采集逻辑：只消费 `board --json`
+- 不要退回"页面 `setInterval` + `fetch('/api/board')`"轮询：已改 SSE，服务端缓存采集，多标签只跑一次
+- 不要允许同时起多个 `--daemon`：pid 文件只有一个，前一个会变孤儿（`dash_running` 已拦）
+- 不要用 awk「整行替换」注入占位符（`__WAYPOINT_DATA__` 与 `<script>` 同行）
+- 不要在 `usage()` 里用未锚定的 `/# USAGE-BEGIN/,/# USAGE-END/p`
+- 不要用 `printf | grep -q` 做断言（pipefail + SIGPIPE 会误报）
+- 不要用 `git reset --hard` 清历史（用 `--soft`）
+- 不要在页面或服务里新增数据采集逻辑：只消费 `board --json`
 
 ## Intentionally Dirty（未提交但属故意的文件）
 
-- 无。本轮改动已随前述单个提交落盘；`.waypoint/locks/` 已被 `.git/info/exclude` 排除
+- 无。`.waypoint/locks/`、`dash.run`、`dash.log`、`dashboard.html` 均已 exclude
 
 ## 关联项目（全局模式且锚定了项目时填，无则写"无"）
 
@@ -54,15 +64,14 @@ bash scripts/waypoint.sh checkpoint --target . --allow-dirty --client qoder → 
 
 ## 关键坑与约束（≤5 条）
 
-- macOS 无 GNU awk 的 `systime/strftime`、BSD sed 无 `\|` 交替：候选列表与时间格式化一律用纯 bash 或只用算术
-- `set -e` 下函数末尾的 `[[ ]] && cmd` 失败会让脚本以 1 退出；脚本末尾显式 `exit 0`
-- `$VAR` 紧跟中文标点会被并入变量名，双引号内一律写 `${VAR}`
-- `mktemp -d` 在 macOS 返回 `/var` 符号链接路径，与 `git rev-parse --show-toplevel` 实路径不一致，测试里要 `pwd -P`
-- 测试与演示一律用 `--home "$(mktemp -d)"`，绝不写真实库 `~/.waypoint`
+- SSE 长连接要 `protocol_version = "HTTP/1.1"` + `Connection: keep-alive`，并且**不要在 handler 里缓存 `self.wfile`**；浏览器关页面会抛 `BrokenPipe/ConnectionReset`，必须吞掉
+- 每个 SSE 连接占一个线程：`ThreadingHTTPServer(daemon_threads=True)`，靠采集缓存把子进程数压到常数
+- Browser 自动化在"每 5 秒重绘"的页面上会失效（uid 句柄过期、`press_key` 送不到页面）——验收要用 `evaluate_script` 取数/合成事件，别据此判页面故障
+- 验收"数据会自己变"时，喂数据的节奏必须覆盖观测窗口；喂完再开测会得到假失败
+- `mktemp -d` 在 macOS 返回 `/var` 符号链接路径，测试里要 `pwd -P`；`$VAR` 紧跟中文标点要写 `${VAR}`
 
 ## 恢复入口
 
-- 必读：同目录 `TASK.md`、`PLAN.md`、`PROTOCOL.md`（协议本体）、`JOURNAL.md`（迭代 3 有全部踩坑细节）
-- 代码入口：`scripts/waypoint.sh` 的 `cmd_dash` / `cmd_board` / `dash_template`；页面模板 `dashboard/index.html`；服务 `dashboard/serve.py`
-- 验证入口：`bash tests/smoke.sh`（9 组 93 项，全临时目录）
-- 看板：`bash scripts/waypoint.sh dash --open`
+- 必读：同目录 `TASK.md`、`PLAN.md`（§6 是服务化）、`PROTOCOL.md`（§9.3 看板服务）、`JOURNAL.md`（迭代 3/4 有全部踩坑）
+- 代码入口：`scripts/waypoint.sh` 的 `cmd_dash` / `dash_serve` / `dash_running`；`dashboard/serve.py`（`Board` / `_events`）；`dashboard/index.html`（`connect()` / `fillDrawer`）
+- 验证入口：`bash tests/smoke.sh`（10 组 104 项）；手动 `dash --daemon` + `curl /api/events` + `dash stop`

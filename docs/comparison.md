@@ -11,10 +11,10 @@
 | 交接粒度 | 三模式：同工具换会话 / 跨工具中途接力（CONTINUE.md）/ 完成交接 | 两仪式：接管 / 交出（+ 归档） |
 | 多端并存 | 每 agent 一条分支 + SESSIONS.md 最近 4 条轮转 | **任务线 × 会话隔离**：`sessions/<端>/` 各一份，接管时列候选由人选 |
 | 状态总览 | 无专用视图 | `board`（各端进度/陈旧/锁）+ `--by-client` 端视图 + `--json` 输出契约 |
-| 可视化 | 无 | `dash`：单文件 HTML 页面看板（分组卡片/进度条/锁与陈旧标记/详情抽屉/一键复制接管命令），`--serve` 可本地实时刷新 |
+| 可视化 | 无 | `dash`：本地看板**服务**（HTTP + SSE 推送，仅标准库），页面自动刷新、多标签也只采集一次；分组卡片/进度条/锁与陈旧标记/详情抽屉/一键复制接管命令；`dash export` 另存离线快照 |
 | 防冲突 | 分支隔离 + 冲突处理规则 | `locks/` 租约锁（按线/端互斥，带过期与抢占提示） |
 | 进度契约 | 无（无任务目标/验收标准概念） | TASK.md（DoD）+ PLAN.md |
-| 自检 | `validate.sh`（占位符/字段/条目数 doctor）、`install.sh --upgrade` + 版本号 | `tests/smoke.sh` 冒烟测试（90 项断言，含页面看板回归）；尚无 doctor 与升级命令 |
+| 自检 | `validate.sh`（占位符/字段/条目数 doctor）、`install.sh --upgrade` + 版本号 | `tests/smoke.sh` 冒烟测试（104 项断言，含看板服务与 SSE 回归）；尚无 doctor 与升级命令 |
 
 它最贴近本需求的机制是 agent-switch handoff：先 commit 一个 WIP 检查点 → 留 CONTINUE.md 接力条 → 换工具读它 → 消费完删掉。原则："the next tool reads committed state, not uncommitted memory"。
 

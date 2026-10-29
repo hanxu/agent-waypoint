@@ -10,7 +10,7 @@ VERBOSE=0; [[ "${1:-}" == "-v" ]] && VERBOSE=1
 
 PASS=0; FAIL=0
 TMP="$(mktemp -d)"; TMP="$(cd "$TMP" && pwd -P)"   # macOS /var 是符号链接，解实路径以对比 git toplevel
-trap 'rm -rf "$TMP"' EXIT
+trap 'bash "$WP" --home "$H" dash stop >/dev/null 2>&1; rm -rf "$TMP"' EXIT
 
 ok()   { PASS=$((PASS+1)); [[ $VERBOSE -eq 1 ]] && echo "  ✅ $1" || echo "✅ $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "  ❌ $1"; [[ -n "${2:-}" ]] && echo "     └ $2"; }
@@ -178,7 +178,7 @@ assert_contains "RULES_SNIPPET 写明多任务可选" "列出可接管会话让�
 
 echo "── 9. 页面看板 ───────────────────────────────"
 PAGE="$TMP/page.html"
-assert "dash 生成页面" 0 run dash --out "$PAGE"
+assert "dash --out 自动走导出" 0 run dash --out "$PAGE"
 [[ -s "$PAGE" ]] && ok "页面非空" || bad "页面为空"
 # 占位符与 <script> 包裹同在一行：替换时必须只换数据，不能把标签一起吃算
 if grep -qF 'id="wp-data" type="application/json">{"generated_at"' "$PAGE"; then
@@ -188,7 +188,7 @@ else
 fi
 grep -qF '__WAYPOINT_DATA__' "$PAGE" && bad "占位符未被替换" || ok "占位符已替换"
 grep -qF '"sid":"qoder"' "$PAGE" && ok "会话数据已内嵌" || bad "页面里找不到会话数据"
-assert "dash 默认产物落库" 0 run dash
+assert "dash export 默认产物落库" 0 run dash export
 [[ -f "$H/dashboard.html" ]] && ok "默认输出到库根 dashboard.html" || bad "默认产物位置不对"
 # 产物必须被 exclude，否则库变脏、下次 checkpoint 直接被拒
 if [[ -z "$(git -C "$H" status --porcelain)" ]]; then ok "生成看板后库仍干净（已 exclude）"; else bad "看板产物污染了库" "$(git -C "$H" status --porcelain | head -3)"; fi
@@ -203,6 +203,32 @@ assert "repos" in data and "home" in data
 PY
   python3 -c "import sys;compile(open(sys.argv[1],encoding='utf-8').read(),sys.argv[1],'exec')" \
     "$KIT/dashboard/serve.py" 2>/dev/null && ok "serve.py 语法通过" || bad "serve.py 语法错误"
+fi
+
+echo "── 10. 看板服务（默认形态）──────────────────"
+if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+  TD_PORT=$(( 18000 + RANDOM % 500 ))
+  assert "dash --daemon 后台起服务" 0 run dash --daemon --port "$TD_PORT"
+  TD_PID=""; TD_PORT2=""
+  [[ -s "$H/dash.run" ]] && read -r TD_PID TD_PORT2 < "$H/dash.run" || true
+  [[ -n "$TD_PORT2" ]] && ok "dash.run 记录 pid 与端口（${TD_PORT2}）" || bad "没写出 dash.run"
+  assert_contains "dash status 报运行中" "运行中" run dash status
+  # pid 文件只有一个，多开会互相覆盖、前者变孤儿 → 必须拒绝第二个实例
+  assert_contains "重复 dash --daemon 不开新实例" "已在运行" run dash --daemon --port "$TD_PORT"
+  if [[ -n "$TD_PORT2" ]]; then
+    TD_B="$(curl -fsS --max-time 5 "http://127.0.0.1:${TD_PORT2}/api/board" 2>/dev/null)"
+    case "$TD_B" in *'"sessions"'*) ok "/api/board 返回 JSON" ;; *) bad "/api/board 无响应" ;; esac
+    TD_P="$(curl -fsS --max-time 5 "http://127.0.0.1:${TD_PORT2}/" 2>/dev/null)"
+    case "$TD_P" in *'id="wp-data" type="application/json">{"generated_at"'*) ok "/ 返回已注入数据的页面" ;; *) bad "/ 页面异常" ;; esac
+    case "$TD_P" in *'__WAYPOINT_DATA__'*) bad "/ 页面残留占位符" ;; *) ok "/ 页面占位符已替换" ;; esac
+    TD_E="$(curl -sN --max-time 3 "http://127.0.0.1:${TD_PORT2}/api/events" 2>/dev/null | head -c 300)"
+    case "$TD_E" in *'data: {"generated_at"'*) ok "SSE 首帧带数据" ;; *) bad "SSE 无首帧（页面不会自动刷新）" ;; esac
+  fi
+  if [[ -z "$(git -C "$H" status --porcelain)" ]]; then ok "服务运行期库仍干净（dash.run/log 已 exclude）"; else bad "dash.run/log 污染了库" "$(git -C "$H" status --porcelain | head -3)"; fi
+  assert "dash stop 停止服务" 0 run dash stop
+  assert_contains "stop 后 status 报未运行" "未在后台运行" run dash status
+else
+  echo "  (跳过：缺 python3 或 curl)"
 fi
 
 echo

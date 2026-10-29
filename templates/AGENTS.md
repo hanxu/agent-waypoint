@@ -19,7 +19,7 @@
 | 「checkpoint」/「告一段落」/「我要切到 XX 了」 | 交出仪式（Checkpoint） |
 | 「任务完成」 | 归档仪式（Archive） |
 | 「任务看板」/「各端进度」 | `scripts/waypoint.sh board`（含本机其他项目仓库的任务状态） |
-| 「页面看板」/「看板页面」/「没法直接看命令行」 | `scripts/waypoint.sh dash --open`（单文件 HTML，双击即看；要自动刷新用 `dash --serve`） |
+| 「页面看板」/「看板页面」/「没法直接看命令行」 | `scripts/waypoint.sh dash --open`（起本地看板服务并开浏览器，页面自己刷新；要后台常驻用 `dash --daemon`，停用 `dash stop`） |
 
 ## 接管仪式（摘要）
 

@@ -229,13 +229,13 @@
 </aside>
 
 <script id="wp-data" type="application/json">__WAYPOINT_DATA__</script>
-<script>window.WAYPOINT_LIVE = false;/*live*/</script>
 <script>
 (function () {
   "use strict";
 
   var DATA = JSON.parse(document.getElementById("wp-data").textContent || "{}");
-  var LIVE = !!window.WAYPOINT_LIVE;
+  var LIVE = false;            // 由服务端 SSE 推送点亮；离线打开时恒为 false
+  var ES = null;
   var DAY = 86400;
   var state = { q: "", filter: "all", open: null };
 
@@ -439,6 +439,10 @@
       if (rows[i].getAttribute("data-key") === key) rows[i].classList.add("open");
       else rows[i].classList.remove("open");
     }
+    fillDrawer(s);
+    document.getElementById("d-close").focus();
+  }
+  function fillDrawer(s) {
     document.getElementById("d-title").innerHTML = esc(s.title || "(未立项)") +
       ' <span class="tag" style="margin-left:6px">' + esc(s.client) + "</span>";
     document.getElementById("d-sub").textContent = s.line + " / " + s.sid;
@@ -463,7 +467,6 @@
     html += "<h4>其他</h4>";
     html += cmdRow("waypoint status " + s.line + " --sid " + s.sid);
     document.getElementById("d-body").innerHTML = html;
-    document.getElementById("d-close").focus();
   }
   function closeDrawer() {
     var key = state.open;
@@ -483,7 +486,7 @@
     var list = sessions();
     document.getElementById("meta").innerHTML =
       "库 <b>" + esc(DATA.home || "-") + "</b> · 快照 <b>" + esc(DATA.generated_at || "-") + "</b>" +
-      (LIVE ? ' · <b style="color:var(--ok)">实时</b>' : "");
+      (LIVE ? ' · <b style="color:var(--ok)">实时推送</b>' : ' · <b>离线快照</b>');
     renderStats(list);
     renderChips(list);
     var cs = list.filter(function (s) { return s.cur; })[0];
@@ -493,10 +496,17 @@
     renderLines(list, cur);
     renderRepos();
     focusRow(fk);
-    document.getElementById("foot").textContent =
-      "数据来自 waypoint board --json" + (LIVE ? " · 每 5 秒自动刷新" : " · 静态快照，点右上「复制刷新命令」可重新生成");
+    if (state.open) {  // 推送更新时让抽屉内容跟着新，而不是留着旧数据
+      var so = list.filter(function (x) { return x.line + "/" + x.sid === state.open; })[0];
+      if (so) fillDrawer(so); else closeDrawer();
+    }
+    document.getElementById("foot").textContent = LIVE
+      ? "数据来自 waypoint board --json · 由本机看板服务推送（SSE，每 5 秒一次）"
+      : "数据来自 waypoint board --json · 离线快照（" + (DATA.generated_at || "-") +
+        "）；终端执行 waypoint dash 起服务后即为实时";
     var rb = document.getElementById("refresh");
-    if (!LIVE) { rb.textContent = "复制刷新命令"; rb.title = "在终端执行 waypoint dash --open 重新生成"; }
+    rb.textContent = LIVE ? "实时 · 重连" : "复制启动命令";
+    rb.title = LIVE ? "数据由本机服务推送，点一下强制重连" : "在终端执行 waypoint dash --open 起服务";
   }
 
   /* ---------- 交互 ---------- */
@@ -541,9 +551,8 @@
     if (b) copy(b.getAttribute("data-copy"), b);
   });
   document.getElementById("refresh").addEventListener("click", function () {
-    if (LIVE) { poll(); return; }
-    var btn = this;
-    copy("waypoint dash --open", btn);
+    if (LIVE) { connect(); return; }
+    copy("waypoint dash --open", this);
   });
   document.addEventListener("keydown", function (e) {
     if (e.key === "/" && document.activeElement.tagName !== "INPUT") {
@@ -555,16 +564,23 @@
     }
   });
 
-  /* ---------- 实时模式（waypoint dash --serve） ---------- */
-  function poll() {
-    fetch("/api/board", { cache: "no-store" })
-      .then(function (r) { return r.json(); })
-      .then(function (d) { DATA = d; render(); })
-      .catch(function () { /* 服务没起来就保持上一次快照 */ });
+  /* ---------- 实时：由 waypoint dash 起的服务端 SSE 推送 ---------- */
+  function connect() {
+    if (!window.EventSource) return;
+    if (ES) { try { ES.close(); } catch (e) { /* 已断开 */ } ES = null; }
+    try { ES = new EventSource("/api/events"); } catch (e) { return; }
+    ES.onmessage = function (e) {
+      var d;
+      try { d = JSON.parse(e.data); } catch (err) { return; }
+      DATA = d; LIVE = true; render();
+    };
+    ES.onerror = function () {  // 服务停了就退化成当前快照；EventSource 自己会重连
+      if (LIVE) { LIVE = false; render(); }
+    };
   }
 
   render();
-  if (LIVE) { poll(); setInterval(poll, 5000); }
+  connect();
 })();
 </script>
 </body>

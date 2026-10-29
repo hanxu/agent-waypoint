@@ -203,7 +203,7 @@ Waypoint 的做法：**把右侧三项外化为仓库内的纯文本文件**，�
 - [ ] 换下一个客户端重复以上 → 状态无缝衔接
 - [ ] 全局模式：说「各端进度」/「任务看板」→ 能跑 `board` 并按端报出进度
 - [ ] 全局模式：说「继续任务」→ **先列候选会话让我选**，而不是直接接 CURRENT 或 自己猜一个
-- [ ] 全局模式：`dash --open` 能生成并打开页面看板，页面上的会话数/锁标记与 `board` 一致
+- [ ] 全局模式：`dash` 能起看板服务并打开页面，页面上的会话数/锁标记与 `board` 一致，且数据变化后不刷新也能自动更新
 
 任一条不过 → 让它 `cat AGENTS.md` 验证文件是否被加载，退回 §5 换注入方式。
 
@@ -212,7 +212,7 @@ Waypoint 的做法：**把右侧三项外化为仓库内的纯文本文件**，�
 - **waypoint CLI**（`scripts/waypoint.sh`）：`init` / `checkpoint` / `status` / `resume` / `board` / `dash`，checkpoint 自动抓取 git 事实预填交接模板
 - **waypoint-mcp**（演进）：MCP server 暴露 `get_state` / `list_sessions` / `checkpoint` / `lock`；工具调用比读文件更不易被遗漏，Qoder/WorkBuddy/Trae/Cursor 均支持挂载。纯文件协议永远是兜底
 - **git hook**（可选）：pre-commit 检查代码改动但 JOURNAL 无新条目时提醒
-- **状态面板**：`board --json` 是稳定输出契约，`dash` 已基于它做出单文件页面看板（全局会话 + 项目模式仓库两部分）；后续的面板/小程序/机器间同步都从同一份 JSON 出发，不要在页面里另写数据采集逻辑
+- **状态面板**：`board --json` 是稳定输出契约，`dash` 基于它做成**本地看板服务**（HTTP + SSE 推送，全局会话 + 项目模式仓库两部分）；后续的面板/小程序/机器间同步都从同一份 JSON 出发，不要在页面或服务里另写数据采集逻辑
 
 ## 8. 风险与对策
 
@@ -265,7 +265,8 @@ resume                                         ⭐ 列出全部可接管会话�
 resume <线>/<端> [--client C] [--force]      接管并取锁；本端无会话则从源会话继承新建
 checkpoint [--line L] [--sid S] [--client C]  交出到本端会话（预填 git 事实）
 board [--json] [--by-client] [--stale-days N]  ⭐ 各端任务总览（含项目模式仓库）
-dash [--out F] [--open] [--serve [--port N]]   🖥️ 页面看板（静态单文件 HTML / 本地实时服务）
+dash [serve] [--port N] [--open] [--daemon]   🖥️ 看板服务（默认取法；stop/status 管控）
+dash export [--out F] [--open]                导出离线快照（转发/看历史用）
 tasks / switch <线> [端] / status [--line L] [--sid S]
 lock / unlock / who                            手动租约锁（默认 45 分钟）
 migrate [--force]                              旧布局 → 会话布局
@@ -284,7 +285,7 @@ repos ls                                       已登记的项目模式仓库
 
 **看板**（对应“看到各端任务情况”）：`board` 同时读全局会话与 `repos.txt` 登记的项目仓库，一行一个执行体；`--by-client` 看端视图（每个端多少会话、有无活跃锁、最近活动）；`--json` 输出可发面板。
 
-**页面看板**（给人看的，不需要终端）：`dash` 把 `board --json` 注入单文件 HTML，输出到 `~/.waypoint/dashboard.html`（`--out` 改路径，`--open` 直接打开），双击就能看：按任务线分组的会话行、计划进度条、锁/陈旧/继承标记、点行展开详情（目录、父会话、JOURNAL 条数、下一步全文）并一键复制接管命令。`dash --serve` 则起 `127.0.0.1:8787` 本地服务（仅用 python3 标准库），页面每 5 秒重新拉一次 `/api/board` 自动刷新。两种形态数据源相同，静态那份可以丢给别人看（只读、无服务）。
+**看板服务**（给人看的，不需要终端）：`dash` 在 `127.0.0.1:8787` 起一个只读看板服务（仅 python3 标准库），打开页面即见：按任务线分组的会话行、计划进度条、锁/陈旧/继承标记、点行展开详情（目录、父会话、JOURNAL 条数、下一步全文）并一键复制接管命令。数据由服务端每 5 秒采集一次并通过 SSE 推送给所有页面——**多个标签页也只跑一次 `board --json`**，页面无需轮询、无需刷新。`--daemon` 让服务后台常驻（pid/端口写 `dash.run`，日志 `dash.log`，均不入库），`dash stop` 停、`dash status` 看健康。`dash export` 是次要形态：把数据注入单文件 HTML 存成离线快照，用于转发给别人或看历史（`file://` 下没有服务，页面会显示“离线快照”）。
 
 ### 9.4 仪式差异（相对 §3）
 

@@ -21,8 +21,8 @@ bash "$WP" new 优化网关 --client qoder [--project ~/work/tsy-gateway]
 
 ```bash
 bash "$WP" board          # ⭐ 各端任务总览：进度、多久没动、谁拿着锁（--by-client 看端视图，--json 给面板）
-bash "$WP" dash --open    # 🖥️ 页面看板：生成单文件 HTML 并打开（不用终端也能看）
-bash "$WP" dash --serve   # 想让它自己跳动：起 127.0.0.1:8787 本地服务，页面每 5 秒自动刷新
+bash "$WP" dash --open     # 🖥️ 看板服务：起本地服务并打开浏览器，页面自己会刷新
+bash "$WP" dash --daemon   # 想让它在后台常驻（关掉终端也活着），停用: dash stop
 bash "$WP" resume         # 列出可接管会话（多个端交过手 = 多个候选）
 bash "$WP" resume 优化网关/qoder --client trae   # 接手：trae 无会话则从 qoder 的快照继承一份
 bash "$WP" tasks / switch <线> [端] / status / who / lock / unlock / migrate

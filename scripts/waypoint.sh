@@ -13,7 +13,8 @@
 #   resume [--line L] [--sid S] [--client C] 不给参数=列出可接管会话；给了=接管并取锁
 #   checkpoint --line L [--sid S] [--client C] [--allow-dirty]  交出（写回本会话）
 #   board [--json] [--by-client] [--stale-days N]  ⭐ 各端任务总览（含项目模式）
-#   dash [--out F] [--open] [--serve [--port N]]  📊 页面看板（单文件 HTML，双击即看）
+#   dash [serve] [--port N] [--open] [--daemon]  📊 看板服务（默认常驻推送；dash stop / status 管控）
+#   dash export [--out F] [--open]              导出离线快照（转发/看历史用）
 #   tasks / switch <任务线> [会话] / status [--line L] [--sid S]
 #   lock / unlock / who                       租约锁；项目模式 `lock --target P`，全局模式 `lock --line L --sid S`
 #   migrate [--line L] [--client C]          旧版单文件布局 → 会话布局
@@ -54,7 +55,7 @@ HOME_DIR="${WAYPOINT_HOME:-$HOME/.waypoint}"
 ALLOW_DIRTY=0
 LINE=""; SID=""; CLIENT=""; PROJ_PATH=""; TTL_MIN=45
 BOARD_JSON=0; BY_CLIENT=0; STALE_DAYS=7; FORCE=0
-DASH_OUT=""; DASH_OPEN=0; DASH_SERVE=0; DASH_PORT=8787
+DASH_OUT=""; DASH_OPEN=0; DASH_SERVE=0; DASH_PORT=8787; DASH_DAEMON=0
 POS1=""; POS2=""
 
 while [[ $# -gt 0 ]]; do
@@ -72,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --out) DASH_OUT="$2"; shift 2 ;;
     --open) DASH_OPEN=1; shift ;;
     --serve) DASH_SERVE=1; shift ;;
+    --daemon) DASH_DAEMON=1; DASH_SERVE=1; shift ;;
     --port) DASH_PORT="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
     --allow-dirty) ALLOW_DIRTY=1; shift ;;
@@ -459,6 +461,8 @@ EOF
   fi
   ensure_excluded "$HOME_DIR" "locks/"
   ensure_excluded "$HOME_DIR" "dashboard.html"   # 页面看板产物，不该把库弄脏
+  ensure_excluded "$HOME_DIR" "dash.run"         # 看板服务的 pid+端口（不入库）
+  ensure_excluded "$HOME_DIR" "dash.log"         # 看板服务日志（不入库）
   git -C "$HOME_DIR" add -A
   if ! git -C "$HOME_DIR" commit -q -m "waypoint: init home library" 2>/dev/null; then
     echo "(全局库首次提交未完成：多为 git 身份未配置。请设置 git config --global user.name/user.email 后手工提交)"
@@ -470,7 +474,8 @@ EOF
   echo "  CURRENT            当前会话指针（<线>/<端>）"
   echo "  tasks/<线>/sessions/<端>/   会话隔离布局"
   echo "  locks/             租约锁（不入库）"
-  echo "  dashboard.html     dash 生成的页面看板（不入库）"
+  echo "  dashboard.html     dash export 导出的离线快照（不入库）"
+  echo "  dash.run / dash.log  看板服务进程与日志（不入库，dash stop 清）"
   echo "  repos.txt          项目模式仓库登记（board 用）"
   echo
   echo "下一步: 1) 把 RULES_SNIPPET.md 贴进各客户端用户级规则  2) $0 new <任务线> --client <端>"
@@ -867,21 +872,119 @@ dash_template() {
 
 cmd_dash() {
   require_lib
-  local tpl; tpl="$(dash_template)" || die "找不到看板模板（应为 $KIT_DIR/dashboard/index.html）"
+  local act="${POS1:-serve}"
+  case "$act" in
+    serve|start) dash_serve ;;
+    export|snapshot|static) dash_export ;;
+    stop) dash_stop ;;
+    status) dash_status ;;
+    *) die "dash 子命令未知: ${act}（可用: serve / export / stop / status）" ;;
+  esac
+  return 0
+}
 
+dash_runfile() { printf '%s/dash.run' "$HOME_DIR"; }
+dash_logfile() { printf '%s/dash.log' "$HOME_DIR"; }
+
+# 已有后台实例时返回 0，并设 DASH_RPID / DASH_RPORT（pid 文件只有一个，多开会变孤儿）
+dash_running() {
+  local run; run="$(dash_runfile)"
+  [[ -f "$run" ]] || return 1
+  local p="" o=""
+  read -r p o < "$run" || true
+  [[ -n "$p" ]] || return 1
+  kill -0 "$p" 2>/dev/null || return 1
+  DASH_RPID="$p"; DASH_RPORT="$o"
+  return 0
+}
+
+# 主形态：起服务。前台 Ctrl+C 停；--daemon 常驻（pid 落 dash.run，stop 止）
+dash_serve() {
+  if [[ -n "$DASH_OUT" ]]; then dash_export; return 0; fi
+  local tpl; tpl="$(dash_template)" || die "找不到看板模板（应为 ${KIT_DIR}/dashboard/index.html）"
+  local py="$KIT_DIR/dashboard/serve.py"
+  [[ -f "$py" ]] || die "找不到 ${py}"
+  command -v python3 >/dev/null 2>&1 || die "看板服务需要 python3（只用标准库）。不想装就导出离线快照: waypoint.sh dash export --out /tmp/wp.html"
+  ensure_excluded "$HOME_DIR" "dash.run"
+  ensure_excluded "$HOME_DIR" "dash.log"
+
+  if dash_running; then
+    echo "看板服务已在运行: http://127.0.0.1:${DASH_RPORT}/   pid ${DASH_RPID}"
+    echo "  直接用它；要重启先: waypoint.sh dash stop"
+    [[ $DASH_OPEN -eq 1 ]] && { if command -v open >/dev/null 2>&1; then open "http://127.0.0.1:${DASH_RPORT}/"; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "http://127.0.0.1:${DASH_RPORT}/"; fi; }
+    return 0
+  fi
+
+  local args=("$py" --waypoint "$0" --home "$HOME_DIR" --template "$tpl" --port "$DASH_PORT" --stale-days "$STALE_DAYS")
+
+  if [[ $DASH_DAEMON -eq 0 ]]; then
+    echo "看板服务: 前台运行，Ctrl+C 停止 · 库 ${HOME_DIR}"
+    [[ $DASH_OPEN -eq 1 ]] && exec python3 "${args[@]}" --open
+    exec python3 "${args[@]}"
+  fi
+
+  local run log
+  run="$(dash_runfile)"; log="$(dash_logfile)"
+  rm -f "$run"
+  nohup python3 "${args[@]}" --quiet --port-file "$run" > "$log" 2>&1 &
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    [[ -s "$run" ]] && break
+    sleep 0.2
+  done
+  [[ -s "$run" ]] || die "服务没起来，看日志: ${log}"
+  local pid="" port=""
+  read -r pid port < "$run" || true
+  echo "看板服务已后台运行: http://127.0.0.1:${port}/   pid ${pid}"
+  echo "  停止: waypoint.sh dash stop    状态: dash status    日志: ${log}"
+  if [[ $DASH_OPEN -eq 1 ]]; then
+    if command -v open >/dev/null 2>&1; then open "http://127.0.0.1:${port}/"
+    elif command -v xdg-open >/dev/null 2>&1; then xdg-open "http://127.0.0.1:${port}/"
+    fi
+  fi
+  return 0
+}
+
+dash_stop() {
+  local run; run="$(dash_runfile)"
+  if [[ ! -f "$run" ]]; then echo "没有在后台运行的看板服务。"; return 0; fi
+  local pid="" port=""
+  read -r pid port < "$run" || true
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    echo "已停止看板服务（pid ${pid}，端口 ${port:-?}）"
+  else
+    echo "记录的 pid ${pid:-?} 已不在运行，清理残留"
+  fi
+  rm -f "$run"
+  return 0
+}
+
+dash_status() {
+  local run; run="$(dash_runfile)"
+  if [[ ! -f "$run" ]]; then echo "看板服务: 未在后台运行（前台模式用 Ctrl+C 停）"; return 0; fi
+  local pid="" port=""
+  read -r pid port < "$run" || true
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    echo "看板服务: 运行中   pid ${pid}   地址 http://127.0.0.1:${port}/"
+    if command -v curl >/dev/null 2>&1; then
+      if curl -fsS --max-time 3 "http://127.0.0.1:${port}/api/ping" >/dev/null 2>&1; then
+        echo "健康检查: OK"
+      else
+        echo "健康检查: 端口无响应（日志 $(dash_logfile)）"
+      fi
+    fi
+  else
+    echo "看板服务: 已停止（残留 pid 文件，用 waypoint.sh dash stop 清理）"
+  fi
+  return 0
+}
+
+# 次要形态：导出自包含快照（离线/转发给他人看）
+dash_export() {
+  local tpl; tpl="$(dash_template)" || die "找不到看板模板（应为 ${KIT_DIR}/dashboard/index.html）"
   local json; json="$(BOARD_JSON=1 cmd_board)"
   [[ -n "$json" ]] || die "board --json 没有输出，页面无法生成"
-
-  if [[ $DASH_SERVE -eq 1 ]]; then
-    local py="$KIT_DIR/dashboard/serve.py"
-    [[ -f "$py" ]] || die "找不到 $py"
-    command -v python3 >/dev/null 2>&1 || die "--serve 需要 python3（仅用标准库；不想装就用不带 --serve 的 dash 生成静态页）"
-    local extra=""
-    [[ $DASH_OPEN -eq 1 ]] && extra="--open"
-    echo "端口 ${DASH_PORT}；库: ${HOME_DIR}（页面每 5 秒自动刷新）"
-    exec python3 "$py" --waypoint "$0" --home "$HOME_DIR" --template "$tpl" \
-      --port "$DASH_PORT" --stale-days "$STALE_DAYS" ${extra:+"$extra"}
-  fi
 
   local out="${DASH_OUT:-$HOME_DIR/dashboard.html}"
   mkdir -p "$(dirname "$out")"
@@ -903,13 +1006,13 @@ cmd_dash() {
   rm -f "$tmp"
 
   local n; n="$(printf '%s' "$json" | grep -o '"line":' | wc -l | tr -d ' ' || true)"
-  echo "已生成页面看板: ${out}　（${n:-0} 个会话）"
+  echo "已导出离线快照: ${out}　（${n:-0} 个会话）"
   if [[ $DASH_OPEN -eq 1 ]]; then
     if command -v open >/dev/null 2>&1; then open "$out"
     elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$out"
     else echo "（没找到 open/xdg-open，请手动打开上面的文件）"; fi
   else
-    echo "打开方式: open \"${out}\"　或重跑: waypoint.sh dash --open"
+    echo "要实时看用服务: waypoint.sh dash --open（静态文件只适合转发/离线）"
   fi
   return 0
 }
