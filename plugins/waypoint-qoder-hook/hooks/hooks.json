@@ -1,0 +1,143 @@
+{
+  "description": "Waypoint 自动落盘 hook：用户输入与 agent 回答都归档（无 LLM），其余事件做探针观测宿主究竟会回调哪些事件",
+  "hooks": {
+    "SessionStart": [
+      {
+        "async": false,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["probe"],
+            "name": "waypoint-session-start-probe",
+            "timeout": 2
+          }
+        ]
+      },
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["capture-only"],
+            "name": "waypoint-session-start-snapshot",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["prompt"],
+            "name": "waypoint-capture-prompt",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["probe"],
+            "name": "waypoint-probe-session-end",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["stop"],
+            "name": "waypoint-capture-answer",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["probe"],
+            "name": "waypoint-probe-pre-tool-use",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["probe"],
+            "name": "waypoint-probe-post-tool-use",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["probe"],
+            "name": "waypoint-probe-subagent-stop",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["probe"],
+            "name": "waypoint-probe-pre-compact",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${QODER_PLUGIN_ROOT}/bin/waypoint-hook",
+            "args": ["probe"],
+            "name": "waypoint-probe-notification",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}

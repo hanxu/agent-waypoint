@@ -231,6 +231,121 @@ else
   echo "  (跳过：缺 python3 或 curl)"
 fi
 
+echo "── 11. 自动落盘 hook（capture）──────────────"
+# 立场：hook 不用 LLM，只归集原料；因此这一节的断言全部应该在没有模型时成立
+HOOK="$KIT/plugins/waypoint-qoder-hook/bin/waypoint-hook"
+CP="$TMP/capture"
+mkdir -p "$CP/.waypoint" "$CP/.git/info"
+git -C "$CP" init -q
+for f in TASK PLAN HANDOFF JOURNAL DECISIONS; do cp "$KIT/templates/$f.md" "$CP/.waypoint/$f.md" 2>/dev/null || true; done
+printf '.waypoint/inbox/\n' >> "$CP/.git/info/exclude"
+git -C "$CP" add -A >/dev/null 2>&1; git -C "$CP" commit -q -m "init 协议"
+cp_run() { ( cd "$CP" && WAYPOINT_INBOX="$CP/.waypoint/inbox" WAYPOINT_INBOX_MODE=project "$HOOK" "$1" ); }
+
+printf '{"prompt":"额度快没了怎么办"}' | cp_run prompt
+printf '{"hookEventName":"SessionStart","session_id":"s1"}' | cp_run probe
+sleep 2
+[[ -f "$CP/.waypoint/inbox/prompts.log" ]] && ok "prompts.log 已落盘" || bad "prompts.log 未生成"
+if grep -q '额度快没了怎么办' "$CP/.waypoint/inbox/prompts.log" 2>/dev/null; then ok "用户输入原文零 LLM 进入收件箱"; else bad "输入原文丢失"; fi
+if grep -q '"hookEventName":"SessionStart"' "$CP/.waypoint/inbox/hook-probe.log" 2>/dev/null; then ok "stdin 原文留档（schema 可事后校正）"; else bad "探针未留档"; fi
+[[ -f "$CP/.waypoint/inbox/.last-head" ]] && ok "基线 HEAD 已记录" || bad "未记录基线 HEAD"
+[[ -z "$(git -C "$CP" status --porcelain)" ]] && ok "收件箱不污染 git status（info/exclude 生效）" || bad "收件箱污染工作区" "$(git -C "$CP" status --porcelain | head -3)"
+
+assert_contains "capture show 列出待归摞" "待归摞" run capture show --target "$CP"
+assert_contains "capture drain 归摞进 JOURNAL" "自动落盘（hook 捕获" run capture drain --target "$CP"
+grep -q '额度快没了怎么办' "$CP/.waypoint/JOURNAL.md" 2>/dev/null && ok "JOURNAL 拿到原料" || bad "JOURNAL 未含输入原文"
+assert_contains "再次 drain 幂等（游标已前进）" "没有待归摞的原料" run capture drain --target "$CP"
+
+git -C "$CP" commit -q --allow-empty -m "改写 handler 透传"; sleep 2
+printf '{"prompt":"再来一条"}' | cp_run prompt; sleep 2
+if grep -q '改写 handler 透传' "$CP/.waypoint/inbox/commits.log" 2>/dev/null; then ok "提交增量按 last_head 捕获（问 git 不问 LLM）"; else bad "commits.log 未捕获增量"; fi
+assert "drain --commit 只提交 JOURNAL 与游标" 0 run capture drain --target "$CP" --commit
+[[ -z "$(git -C "$CP" status --porcelain)" ]] && ok "归摞提交后工作区干净" || bad "归摞提交后仍脏" "$(git -C "$CP" status --porcelain | head -3)"
+assert "capture 未知子命令要报错" nonzero run capture frobnicate --target "$CP"
+# 没装 waypoint 时 hook 必须空转：不建目录、不写文件、不碰用户仓库
+STRAY="$TMP/stray"; mkdir -p "$STRAY"; git -C "$STRAY" init -q
+printf 'keep\n' > "$STRAY/a.txt"; git -C "$STRAY" add -A; git -C "$STRAY" commit -q -m "init"
+BEFORE="$(git -C "$STRAY" status --porcelain)"
+( cd "$STRAY" && env -u WAYPOINT_INBOX -u WAYPOINT_INBOX_MODE -u WAYPOINT_FALLBACK_INBOX \
+    HOME="$TMP/fakehome" WAYPOINT_HOME="$TMP/no-such-lib" "$HOOK" prompt <<< '{"prompt":"x"}' ) >/dev/null 2>&1
+AFTER="$(git -C "$STRAY" status --porcelain)"
+[[ "$BEFORE" == "$AFTER" ]] && ok "找不到 waypoint 时 hook 不碰无关仓库" || bad "hook 改动了无关仓库" "$AFTER"
+[[ ! -e "$STRAY/.waypoint" ]] && ok "hook 不在陌生仓库里造 .waypoint" || bad "hook 造了 .waypoint"
+[[ ! -e "$TMP/fakehome/.waypoint" ]] && ok "hook 不伪造 HOME" || bad "污染了假 HOME"
+
+# 关键回归：Qoder 真实走的是自动探测分支（不给 WAYPOINT_INBOX）
+#   该分支曾因 INBOX_DIR 未赋值而崩，而上一条空转断言恰好会掩盖它，所以必须分模式正断
+printf '{"prompt":"自动探测分支实跑"}' | ( cd "$CP" && env -u WAYPOINT_INBOX -u WAYPOINT_INBOX_MODE -u WAYPOINT_PROJECT \
+  HOME="$TMP/fakehome" WAYPOINT_HOME="$TMP/no-lib" "$HOOK" prompt )
+sleep 2
+if grep -q '|project|.*自动探测分支实跑' "$CP/.waypoint/inbox/prompts.log" 2>/dev/null; then
+  ok "自动探测：落进项目收件箱（Qoder 真实路径）"
+else
+  bad "自动探测未落盘" "$(tail -3 "$CP/.waypoint/inbox/prompts.log" 2>/dev/null)"
+fi
+if grep -q '|project|prompt|'"$CP"'|master|' "$CP/.waypoint/inbox/snapshots.log" 2>/dev/null; then
+  ok "快照的 git 事实取自收件箱所属仓库（不是家目录）"
+else
+  bad "快照取错了仓库" "$(tail -2 "$CP/.waypoint/inbox/snapshots.log" 2>/dev/null)"
+fi
+# 全局模式：cwd 不在任何装了协议的仓库里 → 收件箱落任务库根，且不脏库
+printf '{"prompt":"全局模式一条"}' | ( cd "$STRAY" && env -u WAYPOINT_INBOX -u WAYPOINT_INBOX_MODE \
+  HOME="$TMP/fakehome" WAYPOINT_HOME="$H" "$HOOK" prompt )
+sleep 2
+if grep -q '|home|.*全局模式一条' "$H/inbox/prompts.log" 2>/dev/null; then
+  ok "自动探测：退回全局库收件箱"
+else
+  bad "全局库收件箱未落盘" "$(ls -A "$H/inbox" 2>/dev/null)"
+fi
+[[ -z "$(git -C "$H" status --porcelain)" ]] && ok "库收件箱不脏库（init-home 已排除 inbox/）" || bad "库收件箱把库弄脏了" "$(git -C "$H" status --porcelain | head -3)"
+
+echo "── 11b. 落盘路由与 agent 回答（实测 schema）──────────────"
+# 实测：宿主把 hook 的进程 cwd 设为插件安装目录，项目位置在 payload 的 cwd 字段里（且常为 workspace 根）
+REG="$TMP/libreg"; mkdir -p "$REG"; printf '%s\n' "$CP" > "$REG/repos.txt"
+printf '{"hook_event_name":"UserPromptSubmit","prompt":"从 workspace 根路由","cwd":"%s"}' "$TMP" | \
+  ( cd "$STRAY" && env -u WAYPOINT_INBOX -u WAYPOINT_INBOX_MODE -u WAYPOINT_PROJECT \
+      HOME="$TMP/fakehome" WAYPOINT_HOME="$REG" "$HOOK" prompt )
+sleep 2
+case "$(tail -3 "$CP/.waypoint/inbox/prompts.log" 2>/dev/null)" in
+  *"|project-registered|py|从 workspace 根路由"*) ok "路由：payload cwd 是父目录时经登记表定位到项目收件箱" ;;
+  *) bad "路由未生效" "$(tail -3 "$CP/.waypoint/inbox/prompts.log" 2>/dev/null)" ;;
+esac
+
+# agent 回答：Stop 自带 last_assistant_message，原文必须保留换行（所以落 .md 不落索引行）
+# JSON 里只能给 \n 转义（给真换行会让 json.loads 直接失败）
+TRANSCRIPT="$TMP/tr.jsonl"
+printf '{"r":"user"}\n{"r":"assistant"}\n{"r":"assistant"}\n' > "$TRANSCRIPT"
+printf '{"hook_event_name":"Stop","session_id":"deadbeef-1111","transcript_path":"%s","cwd":"%s","last_assistant_message":"方案结论第一段\\n第二段带 **markdown** 与表格"}' "$TRANSCRIPT" "$CP" | \
+  cp_run stop
+sleep 1
+ANSF="$(ls "$CP/.waypoint/inbox/answers/"*.md 2>/dev/null | head -1)"
+if [[ -n "$ANSF" ]] && grep -q '第二段带 \*\*markdown\*\* 与表格' "$ANSF" 2>/dev/null; then
+  ok "agent 回答原文零 LLM 落盘（换行与 markdown 保留）"
+else
+  bad "回答原文未落盘" "$(ls "$CP/.waypoint/inbox/answers/" 2>/dev/null)"
+fi
+case "$(cat "$CP/.waypoint/inbox/answers.log" 2>/dev/null)" in
+  *"|deadbeef-1111|"*) ok "answers.log 索引导向原文文件" ;;
+  *) bad "索引行缺失" "$(tail -2 "$CP/.waypoint/inbox/answers.log" 2>/dev/null)" ;;
+esac
+case "$(cat "$CP/.waypoint/inbox/sessions.log" 2>/dev/null)" in
+  *"|$TRANSCRIPT|"*"|3") ok "sessions.log 记下 transcript 指针与行数" ;;
+  *) bad "会话指针缺失" "$(tail -2 "$CP/.waypoint/inbox/sessions.log" 2>/dev/null)" ;;
+esac
+# 同一会话只记一次指针（PreToolUse 每次都进来，不能刷成洪水）
+printf '{"hook_event_name":"PreToolUse","session_id":"deadbeef-1111","transcript_path":"%s","cwd":"%s","tool_name":"Bash"}' "$TRANSCRIPT" "$CP" | cp_run probe
+sleep 1
+[[ "$(wc -l < "$CP/.waypoint/inbox/sessions.log" | tr -d ' ')" == "1" ]] && ok "同一会话的指针不重复登记" || bad "指针重复登记" "$(wc -l < "$CP/.waypoint/inbox/sessions.log")"
+
+assert_contains "capture show 把回答列为待归摞" "answers.log: 共 1 行｜已归摞 0｜待归摞 1" run capture show --target "$CP"
+assert_contains "drain --full 把正文内联进输出" "第二段带 **markdown** 与表格" run capture drain --target "$CP" --full --commit
+assert_contains "drain 后 show 仍能看到回答行数" "answers.log: 共 1 行" run capture show --target "$CP"
+grep -q '原文：' "$CP/.waypoint/JOURNAL.md" 2>/dev/null && ok "JOURNAL 里留有回答原文的路径" || bad "JOURNAL 缺原文路径"
+grep -q '第二段带 \*\*markdown\*\* 与表格' "$CP/.waypoint/JOURNAL.md" 2>/dev/null && ok "JOURNAL 里拿到回答正文（--full）" || bad "JOURNAL 缺回答正文"
+grep -q "$TRANSCRIPT" "$CP/.waypoint/JOURNAL.md" 2>/dev/null && ok "JOURNAL 里留了会话全文指针" || bad "JOURNAL 缺会话指针"
+assert_contains "再次 drain 幂等（回答游标也前进了）" "没有待归摞的原料" run capture drain --target "$CP"
+[[ -z "$(git -C "$CP" status --porcelain)" ]] && ok "回答落盘不污染工作区（answers/ 也在 exclude 内）" || bad "回答把仓库弄脏了" "$(git -C "$CP" status --porcelain | head -3)"
+
 echo
 echo "═══ 通过 $PASS / 失败 $FAIL ═══"
 [[ $FAIL -eq 0 ]] || exit 1

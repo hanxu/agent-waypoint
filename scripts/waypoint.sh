@@ -19,6 +19,9 @@
 #   lock / unlock / who                       租约锁；项目模式 `lock --target P`，全局模式 `lock --line L --sid S`
 #   migrate [--line L] [--client C]          旧版单文件布局 → 会话布局
 #   repos ls                                 已登记的项目模式仓库
+#   capture show [--target P] [--since N]    查看自动落盘收件箱（hook 捕获的原料）
+#   capture drain [--target P] [--full]      把收件箱原料归摞成一条机器事实（追加 JOURNAL）
+#   capture drain --commit                   归摞后只提交 JOURNAL 与游标
 #
 #   兼容别名：--task <线> 等价 --line；--task 缺省 sid 时取该线最近交出的会话
 #
@@ -38,7 +41,7 @@ while [[ $# -gt 0 ]]; do
     --target|--home|--line|--sid|--client|--project|--ttl|--stale-days|--task|-l|--out|--port)
       [[ $# -ge 2 ]] || die "缺少参数值: $1"
       if [[ "$1" == "--task" && "$2" == --* ]]; then PRE+=("$1"); shift; else PRE+=("$1" "$2"); shift 2; fi ;;
-    --json|--by-client|--force|--allow-dirty|--open|--serve) PRE+=("$1"); shift ;;
+    --json|--by-client|--force|--allow-dirty|--open|--serve|--full) PRE+=("$1"); shift ;;
     -h|--help) PRE+=("$1"); shift ;;
     -*) die "未知参数: $1" ;;
     *) break ;;
@@ -56,6 +59,7 @@ ALLOW_DIRTY=0
 LINE=""; SID=""; CLIENT=""; PROJ_PATH=""; TTL_MIN=45
 BOARD_JSON=0; BY_CLIENT=0; STALE_DAYS=7; FORCE=0
 DASH_OUT=""; DASH_OPEN=0; DASH_SERVE=0; DASH_PORT=8787; DASH_DAEMON=0
+SINCE=8; DO_COMMIT=0; DO_FULL=0
 POS1=""; POS2=""
 
 while [[ $# -gt 0 ]]; do
@@ -77,6 +81,9 @@ while [[ $# -gt 0 ]]; do
     --port) DASH_PORT="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
     --allow-dirty) ALLOW_DIRTY=1; shift ;;
+    --since) SINCE="$2"; shift 2 ;;
+    --commit) DO_COMMIT=1; shift ;;
+    --full) DO_FULL=1; shift ;;
     # v1 兼容：--task [线名]；不带值则用 CURRENT
     --task)
       if [[ $# -ge 2 && "$2" != --* ]]; then LINE="$2"; shift 2; else LINE="__CURRENT__"; shift; fi ;;
@@ -462,7 +469,8 @@ EOF
   ensure_excluded "$HOME_DIR" "locks/"
   ensure_excluded "$HOME_DIR" "dashboard.html"   # 页面看板产物，不该把库弄脏
   ensure_excluded "$HOME_DIR" "dash.run"         # 看板服务的 pid+端口（不入库）
-  ensure_excluded "$HOME_DIR" "dash.log"         # 看板服务日志（不入库）
+  ensure_excluded "$HOME_DIR" "dash.log"          # 看板服务日志（不入库）
+  ensure_excluded "$HOME_DIR" "inbox/"            # 自动落盘收件箱（机器本地原料，不入库）
   git -C "$HOME_DIR" add -A
   if ! git -C "$HOME_DIR" commit -q -m "waypoint: init home library" 2>/dev/null; then
     echo "(全局库首次提交未完成：多为 git 身份未配置。请设置 git config --global user.name/user.email 后手工提交)"
@@ -1118,6 +1126,174 @@ cmd_repos() {
   done < "$HOME_DIR/repos.txt"
 }
 
+# ---------- 自动落盘收件箱（hook 捕获的原料） ----------
+
+INBOX_LOGS="prompts answers commits sessions snapshots hook-probe hook-raw"
+
+capture_inbox() {  # 赋值 INBOX：显式 env > 项目模式 > 全局库
+  INBOX="${WAYPOINT_INBOX:-}"
+  if [[ -n "$INBOX" ]]; then
+    [[ -d "$INBOX" ]] || die "WAYPOINT_INBOX 指向的目录不存在: $INBOX"
+    return 0
+  fi
+  if [[ -d "$TARGET/.waypoint/inbox" ]]; then
+    INBOX="$TARGET/.waypoint/inbox"
+    ensure_excluded "$TARGET/.waypoint" ".waypoint/inbox/"   # 自愈：hook 写的收件箱不该把用户仓库弄脏
+    return 0
+  fi
+  INBOX="$HOME_DIR/inbox"
+  [[ -d "$INBOX" ]] || die "没有找到收件箱（查过 $TARGET/.waypoint/inbox 与 ${INBOX}）。先装 hook：plugins/waypoint-qoder-hook/install.sh"
+  ensure_excluded "$HOME_DIR" "inbox/"
+}
+
+inbox_cursor() {  # $1=日志名 → 已归摞到的行号（无游标视为 0）
+  local f="$INBOX/.cursor/$1"
+  [[ -f "$f" ]] || { echo 0; return; }
+  local v; v="$(head -1 "$f" 2>/dev/null | tr -cd '0-9')"; printf '%s' "${v:-0}"
+}
+inbox_total() {  # $1=日志文件 → 行数（不存在=0）
+  [[ -f "$1" ]] || { echo 0; return; }
+  printf '%s' "$(wc -l < "$1" | tr -cd '0-9')"
+}
+
+cmd_capture_show() {
+  capture_inbox
+  echo "== 自动落盘收件箱: ${INBOX} =="
+  if [[ -f "$INBOX/.last-head" ]]; then echo "  捕获基线 HEAD: $(head -1 "$INBOX/.last-head")"; fi
+  local name f tot cur new any=0
+  for name in $INBOX_LOGS; do
+    f="$INBOX/$name.log"
+    [[ -f "$f" ]] || continue
+    tot="$(inbox_total "$f")"
+    any=1
+    if [[ "$name" == "prompts" || "$name" == "answers" || "$name" == "commits" ]]; then
+      cur="$(inbox_cursor "$name")"; new=$(( tot - cur ))
+      [[ $new -lt 0 ]] && new=0
+      echo "  $name.log: 共 ${tot} 行｜已归摞 ${cur}｜待归摞 ${new}"
+      tail -n "$SINCE" "$f" | sed 's/^/      /'
+    else
+      echo "  $name.log: 共 ${tot} 行（不参与归摞，只作现场取证）"
+      if [[ "$name" == "hook-probe" ]]; then
+        echo "      （事件探针：用于观测 Qoder 到底回调了哪些事件；最近 3 条，全文在文件里）"
+        tail -n 3 "$f" | sed 's/^/      /'
+      elif [[ "$name" == "hook-raw" ]]; then
+        echo "      （stdin 原文留档；要核对 schema 直接看文件）"
+      else
+        tail -n 2 "$f" | sed 's/^/      /'
+      fi
+    fi
+  done
+  if [[ $any -eq 0 ]]; then echo "  （还没有任何捕获数据：确认插件已启用，并在 Qoder 里发一句话）"; fi
+  echo "  → 归摞到 JOURNAL：scripts/waypoint.sh capture drain"
+}
+
+cmd_capture_drain() {
+  capture_inbox
+  # 归摞目标：项目模式写本仓库 JOURNAL；否则写当前会话的 JOURNAL
+  local jf="" mode=""
+  if [[ "$INBOX" == "$TARGET/.waypoint/inbox" && -d "$TARGET/.waypoint" ]]; then
+    mode="project"; jf="$TARGET/.waypoint/JOURNAL.md"
+  else
+    mode="home"; resolve_ctx 1; jf="$SESS_DIR/JOURNAL.md"
+  fi
+  [[ -f "$jf" ]] || die "JOURNAL 不存在: $jf"
+
+  local picked=0 name f tot cur new
+  local tmp; tmp="$(mktemp)"
+  {
+    echo "## [$(now_iso)] 自动落盘（hook 捕获，无 LLM 参与）"
+    for name in prompts answers commits; do
+      f="$INBOX/$name.log"; [[ -f "$f" ]] || continue
+      cur="$(inbox_cursor "$name")"; tot="$(inbox_total "$f")"
+      [[ $tot -gt $cur ]] || continue
+      new=$(( tot - cur )); picked=1
+      if [[ "$name" == "prompts" ]]; then
+        echo "- 用户输入 ${new} 条（第 $((cur+1))-${tot} 行）："
+        sed -n "$((cur+1)),\$p" "$f" | tail -n 30 | while IFS='|' read -r _ pes pmode pparse ptxt; do
+          [[ -n "$ptxt" ]] && echo "    - ${pes} ${ptxt}"
+        done
+      elif [[ "$name" == "answers" ]]; then
+        # agent 回答：交接的另一半，正文在 .md 里；--full 时连正文一起携进 JOURNAL
+        echo "- agent 回答 ${new} 条（第 $((cur+1))-${tot} 行）："
+        sed -n "$((cur+1)),\$p" "$f" | tail -n 20 | while IFS='|' read -r _ aes aemode asid alen acap afile afirst; do
+          [[ -n "$afile" ]] || continue
+          local_cut=""
+          [[ "$acap" == "1" ]] && local_cut="，已截断"
+          echo "    - ${aes}（${alen} 字${local_cut}）${afirst}"
+          echo "      原文：${afile}"
+          if [[ $DO_FULL -eq 1 && -f "$afile" ]]; then
+            sed 's/^/        /' "$afile" | head -400
+          fi
+        done
+      else
+        echo "- 期间提交："
+        sed -n "$((cur+1)),\$p" "$f" | tail -n 30 | while IFS='|' read -r _ ces ckind _cfrom ccmt; do
+          [[ -n "$ccmt" ]] || continue
+          if [[ "$ckind" == "baseline" ]]; then
+            echo "    - （基线 ${ccmt} 之后的增量）"
+          else
+            echo "    - ${ccmt}"
+          fi
+        done
+      fi
+    done
+    f="$INBOX/sessions.log"
+    if [[ -f "$f" ]]; then
+      echo "- 会话全文（接手时直接读，不依赖模型）："
+      tail -n 3 "$f" | while IFS='|' read -r _ sst smode ssid strans sscd ssb ssl; do
+        [[ -n "$strans" ]] || continue
+        echo "    - ${ssid} · ${strans}（${ssl:-?} 行 / ${ssb:-?} 字节，${sst} 首次见到）"
+      done
+    fi
+    f="$INBOX/snapshots.log"
+    if [[ -f "$f" ]]; then
+      local last; last="$(tail -1 "$f" 2>/dev/null | awk -F'|' '{printf "%s %s %s 脏%s", $2, $6, $7, $8}' || true)"
+      [[ -n "$last" ]] && echo "- 最后一次快照：${last}"
+    fi
+    echo "- 原料位置：${INBOX}"
+  } > "$tmp"
+
+  if [[ $picked -eq 0 ]]; then
+    rm -f "$tmp"
+    echo "没有待归摞的原料（收件箱自上次 drain 后无新增）。"
+    return 0
+  fi
+
+  printf '\n' >> "$jf"; cat "$tmp" >> "$jf"
+  mkdir -p "$INBOX/.cursor" 2>/dev/null || true
+  for name in prompts answers commits; do
+    printf '%s\n' "$(inbox_total "$INBOX/$name.log")" > "$INBOX/.cursor/$name" 2>/dev/null || true
+  done
+
+  echo "已归摞到: $jf"
+  echo "---"
+  cat "$tmp"
+  echo "---"
+  local repo="$TARGET"
+  [[ "$mode" == "home" ]] && repo="$HOME_DIR"
+  if [[ $DO_COMMIT -eq 1 ]]; then
+    git -C "$repo" add -- "$jf" >/dev/null 2>&1 || true
+    git -C "$repo" add -- "$INBOX/.cursor" >/dev/null 2>&1 || true
+    if git -C "$repo" commit -q -m "waypoint: 自动落盘归摞（$(now_iso)）" >/dev/null 2>&1; then
+      echo "已提交（只含 JOURNAL 与游标，不动用户代码）。"
+    else
+      echo "提交失败或无可提交内容；JOURNAL 已写入，数据不丢。"
+    fi
+  else
+    echo "未提交。确认内容后：scripts/waypoint.sh capture drain --commit"
+  fi
+  rm -f "$tmp"
+}
+
+cmd_capture() {
+  local sub="${POS1:-show}"
+  case "$sub" in
+    show) cmd_capture_show ;;
+    drain) cmd_capture_drain ;;
+    *) die "未知 capture 子命令: ${sub}（show|drain）" ;;
+  esac
+}
+
 # ---------- 分发 ----------
 
 case "$CMD" in
@@ -1134,6 +1310,7 @@ case "$CMD" in
   who) cmd_who ;;
   migrate) cmd_migrate ;;
   repos) cmd_repos ;;
+  capture) cmd_capture ;;
   # checkpoint / status：给了线或会话参数 → 全局会话模式；否则 → 项目模式
   checkpoint)
     if [[ -n "$LINE" || -n "$SID" || -n "$POS1" ]]; then cmd_checkpoint_task; else cmd_checkpoint; fi ;;

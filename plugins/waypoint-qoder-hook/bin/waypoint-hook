@@ -1,0 +1,326 @@
+#!/usr/bin/env bash
+# waypoint-hook — Qoder 插件 hook 的自动落盘执行体（无依赖：bash 3.2+ / 无 jq）
+#
+# 设计立场：hook 不做总结、不调用 LLM，只把"原料"追加到收件箱文件里。
+#   额度归零、客户端崩了都不影响落盘；叙事留给 drain 之后的人或 agent。
+#
+# 原料有两半，都不需要模型：
+#   你要什么 = UserPromptSubmit 的 prompt 字段      → prompts.log
+#   它怎么答 = Stop 的 last_assistant_message 全文   → answers/<时刻-会话>.md + answers.log 索引
+#   现场与全文指针 = cwd / transcript_path            → snapshots.log / sessions.log
+#
+# 用法: waypoint-hook <event>   event = probe | prompt | stop | capture-only
+# 输入: stdin 为宿主传入的 hook JSON（字段名按实测 schema 取，未知字段原样留档）
+# 输出: 默认不向上下文注入任何东西；要开启 SessionStart 提醒，在 hooks.json
+#       对应条目里加 env：{"WAYPOINT_HOOK_INJECT": "1"}
+#       任何情况下都必须在 timeout 内退出，慢活一律 fork 到后台。
+set -uo pipefail
+
+EVENT="${1:-capture-only}"
+RAW_LIMIT=8192          # stdin 留档截断（probe 事件不截，便于看清 schema）
+TEXT_LIMIT=2000         # 单条用户输入截断
+ANSWER_LIMIT=20000      # 单条 agent 回答原文截断（字符数）
+LOG_MAX_BYTES=524288    # 单个日志超此大小则裁掉最旧行
+
+[ -t 0 ] && IN="" || IN="$(cat || true)"
+
+# 安装时写死的定位（hook 的 cwd/HOME 不可假设，故读绝对路径配置）；
+# 规则：调用方已显式给出的环境变量优先，conf 只填没给的位（否则测试会写进真实库）
+if [ -z "${WAYPOINT_INBOX:-}" ] && [ -f "${HOME:-/tmp}/.waypoint-hook.conf" ]; then
+  while IFS='=' read -r wpk wpv; do
+    [ -n "$wpk" ] || continue
+    wpv="${wpv%\"}"; wpv="${wpv#\"}"
+    case "$wpk" in
+      WAYPOINT_HOME)           [ -z "${WAYPOINT_HOME+x}" ] && WAYPOINT_HOME="$wpv" ;;
+      WAYPOINT_FALLBACK_INBOX) [ -z "${WAYPOINT_FALLBACK_INBOX+x}" ] && WAYPOINT_FALLBACK_INBOX="$wpv" ;;
+      WAYPOINT_PROJECT)        [ -z "${WAYPOINT_PROJECT+x}" ] && WAYPOINT_PROJECT="$wpv" ;;
+    esac
+  done < <(grep -E '^WAYPOINT_[A-Z_]+=' "${HOME:-/tmp}/.waypoint-hook.conf" 2>/dev/null || true)
+fi
+
+ts() { date +%Y-%m-%dT%H:%M:%S%z; }
+bs() { date +%s; }
+
+# ---------- 解析宿主传入的 hook JSON（本机实测的字段名）----------
+# 实测 schema：hook_event_name / session_id / cwd / transcript_path / prompt /
+#              tool_name / tool_input / tool_response / last_assistant_message / extra
+# 注意：payload 里的 cwd 才是"这次会话在改哪个仓库"，进程自身的 cwd 是插件安装目录。
+H_EVENT=""; H_SID=""; H_CWD=""; H_TRANSCRIPT=""; H_PROMPT=""; H_TOOL=""; H_REASON=""
+payload_fields() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  local kv
+  kv="$(printf '%s' "$IN" | python3 -c '
+import sys, json
+try:
+    d = json.loads(sys.stdin.read() or "{}")
+except Exception:
+    sys.exit(0)
+if not isinstance(d, dict):
+    sys.exit(0)
+def one(v):
+    if not isinstance(v, str):
+        return ""
+    v = v.replace("\n", " ").replace("\t", " ").replace("|", "/").strip()
+    return v[:400]
+pairs = [
+    ("event", d.get("hook_event_name")), ("sid", d.get("session_id")),
+    ("cwd", d.get("cwd")), ("transcript", d.get("transcript_path")),
+    ("prompt", d.get("prompt") or d.get("userPrompt") or d.get("user_prompt")),
+    ("tool", d.get("tool_name")), ("reason", d.get("reason")),
+]
+for k, v in pairs:
+    v = one(v)
+    if v:
+        sys.stdout.write(k + "\t" + v + "\n")
+' 2>/dev/null || true)"
+  [ -n "$kv" ] || return 0
+  while IFS="$(printf '\t')" read -r hk hv; do
+    case "$hk" in
+      event)      H_EVENT="$hv" ;;
+      sid)        H_SID="$hv" ;;
+      cwd)        H_CWD="$hv" ;;
+      transcript) H_TRANSCRIPT="$hv" ;;
+      prompt)     H_PROMPT="$hv" ;;
+      tool)       H_TOOL="$hv" ;;
+      reason)     H_REASON="$hv" ;;
+    esac
+  done <<< "$kv"
+}
+
+# ---------- 收件箱定位：项目模式优先，退回全局库 ----------
+# 依次向上找 .waypoint/ 的仓库；再找全局库（~/.waypoint 或 WAYPOINT_HOME）
+find_proj_root() {  # $1=start dir → 打印项目模式仓库根（找不到则空）
+  # 必须同时有 .waypoint/ 与 .git，且不是家目录：否则会把全局库 ~/.waypoint 误判成项目
+  local d="$1"
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    if [ "$d" != "$HOME" ] && [ -d "$d/.waypoint" ] && [ -e "$d/.git" ]; then
+      printf '%s' "$d"; return 0
+    fi
+    d="$(dirname "$d")"
+  done
+  return 1
+}
+
+# 宿主给的 cwd 常常是 workspace 根（比如 /Users/pc/study），本身没有 .waypoint；
+# 已登记的项目仓库列在全局库 repos.txt 里，所以按登记表匹配，不扫目录（扫目录会超 timeout）
+find_registered() {  # $1=start dir → 打印登记表里的仓库根（找不到则空）
+  local reg="${WAYPOINT_HOME:-$HOME/.waypoint}/repos.txt" d="${1%/}" r best="" bl=0
+  [ -n "$d" ] && [ -f "$reg" ] || return 1
+  while IFS= read -r r; do
+    r="${r%/}"
+    [ -n "$r" ] || continue
+    [ -d "$r/.waypoint" ] || continue
+    case "$d/" in "$r"/*) printf '%s' "$r"; return 0 ;; esac   # cwd 就在已登记仓库内部
+    case "$r/" in "$d"/*) [ "${#r}" -gt "$bl" ] && { best="$r"; bl="${#r}"; } ;; esac
+  done < "$reg"
+  [ -n "$best" ] && { printf '%s' "$best"; return 0; }          # cwd 是某个已登记仓库的父目录
+  return 1
+}
+
+resolve_inbox() {   # 赋值 INBOX_DIR / INBOX_MODE / WP_ROOT / PROOT
+  local cwd="${PWD:-$(pwd)}" root="" p="${H_CWD:-}"
+  INBOX_MODE="${WAYPOINT_INBOX_MODE:-}"
+  WP_ROOT="${WAYPOINT_INBOX:-}"
+  if [ -n "$WP_ROOT" ]; then
+    INBOX_MODE="${INBOX_MODE:-explicit}"
+    # 自测/临时指定：按 <repo>/.waypoint/inbox 惯例上溯两级，也可显式给 WAYPOINT_PROJECT
+    PROOT="${WAYPOINT_PROJECT:-$(dirname "$(dirname "$WP_ROOT")")}"
+  elif [ -n "$p" ] && root="$(find_proj_root "$p")"; then
+    # 项目模式（payload cwd 直接命中）：收件箱跟仓库，git 事实也取这个仓库
+    WP_ROOT="$root/.waypoint/inbox"; INBOX_MODE="project"; PROOT="$root"
+  elif [ -n "$p" ] && root="$(find_registered "$p")"; then
+    # 项目模式（经登记表定位）：cwd 是 workspace 根时走这条，mode 记下来便于事后核对路由
+    WP_ROOT="$root/.waypoint/inbox"; INBOX_MODE="project-registered"; PROOT="$root"
+  elif root="$(find_proj_root "$cwd")"; then
+    WP_ROOT="$root/.waypoint/inbox"; INBOX_MODE="project"; PROOT="$root"
+  elif [ -d "${WAYPOINT_HOME:-$HOME/.waypoint}" ]; then
+    # 全局模式：收件箱与 git 事实都在任务库根（它本身就是个独立仓库）
+    WP_ROOT="${WAYPOINT_HOME:-$HOME/.waypoint}/inbox"; INBOX_MODE="home"; PROOT="${WAYPOINT_HOME:-$HOME/.waypoint}"
+  elif [ -n "${WAYPOINT_FALLBACK_INBOX:-}" ]; then
+    # 兜底：没有 waypoint 也先攒着，方便事后补装与归摞
+    WP_ROOT="$WAYPOINT_FALLBACK_INBOX"; INBOX_MODE="fallback"; PROOT="${WAYPOINT_PROJECT:-}"
+  else
+    return 1
+  fi
+  INBOX_DIR="$WP_ROOT"
+  return 0
+}
+
+# ---------- 追加一行并做尺寸裁剪 ----------
+append_line() {  # $1=file $2=line
+  local f="$1" line="$2"
+  mkdir -p "$(dirname "$f")" 2>/dev/null || return 0
+  printf '%s\n' "$line" >> "$f"
+  local sz; sz="$(wc -c < "$f" 2>/dev/null | tr -d ' ' || echo 0)"; sz="${sz:-0}"
+  if [ "$sz" -gt "$LOG_MAX_BYTES" ]; then
+    local tmp="${f}.rot.$$"
+    tail -n 400 "$f" > "$tmp" 2>/dev/null && mv "$tmp" "$f" || rm -f "$tmp" 2>/dev/null
+  fi
+}
+
+esc() { printf '%s' "$1" | tr '\n\t|' '   ' | cut -c1-"$TEXT_LIMIT"; }
+
+# ---------- 从 hook JSON 里取用户输入（有 python3 用真的，没有就正则粗取） ----------
+# 输出格式：  解析方式|文本（命令替换在子 shell 里跑，故靠 stdout 传递解析方式）
+prompt_field() {
+  local out=""
+  if command -v python3 >/dev/null 2>&1; then
+    out="$(printf '%s' "$IN" | python3 -c '
+import sys, json
+try:
+    d = json.loads(sys.stdin.read() or "{}")
+except Exception:
+    sys.exit(0)
+if isinstance(d, dict):
+    for k in ("prompt", "userPrompt", "user_prompt", "message", "input", "text"):
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            print("py|" + v.strip().replace("\n", " ").replace("|", "/")); break
+' 2>/dev/null || true)"
+  fi
+  if [ -z "$out" ]; then
+    out="$(printf '%s' "$IN" | grep -oE '"(prompt|userPrompt|message|input|text)"[[:space:]]*:[[:space:]]*"[^"]{4,}"' \
+      | head -1 | sed -E 's/^"[^"]+"[[:space:]]*:[[:space:]]*"//; s/"$//' | tr '|\n' '/ ' || true)"
+    [ -n "$out" ] && out="regex|$out"
+  fi
+  printf '%s' "$out"
+}
+
+# ---------- agent 回答原文（Stop 事件自带 last_assistant_message，零 LLM 成本）----------
+# 正文写单独文件（保留换行与 markdown），索引行进 answers.log；返回：长度|是否截断|路径|首行
+answer_capture() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  local out
+  out="$(printf '%s' "$IN" | python3 -c '
+import sys, json, os
+try:
+    d = json.loads(sys.stdin.read() or "{}")
+except Exception:
+    sys.exit(0)
+if not isinstance(d, dict):
+    sys.exit(0)
+t = d.get("last_assistant_message")
+if not isinstance(t, str) or not t.strip():
+    sys.exit(0)
+d_dir, name, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
+body = t.strip()
+cap = 1 if len(body) > limit else 0
+os.makedirs(d_dir, exist_ok=True)
+p = os.path.join(d_dir, name + ".md")
+with open(p, "w", encoding="utf-8") as fh:
+    fh.write(body[:limit])
+    if cap:
+        fh.write("\n\n…（已截断，全文见 transcript_path）\n")
+first = body.splitlines()[0] if body.splitlines() else ""
+sys.stdout.write("%d|%d|%s|%s" % (len(body), cap,
+    p.replace("|", "/"), first.replace("\n", " ").replace("|", "/")[:160]))
+' "$INBOX_DIR/answers" "${EPOCH}-$$-$(printf '%s' "${H_SID:-nosid}" | cut -c1-8)" "$ANSWER_LIMIT" 2>/dev/null || true)"
+  [ -n "$out" ] || return 0
+  append_line "$INBOX_DIR/answers.log" "$EPOCH|$STAMP|$INBOX_MODE|${H_SID:-$EVENT}|$out"
+}
+
+# ---------- 会话与 transcript 指针（接手时取全文的唯一入口）----------
+session_capture() {
+  [ -n "$H_SID" ] && [ -n "$H_TRANSCRIPT" ] || return 0
+  grep -qxF "$H_SID" "$INBOX_DIR/.sessions.seen" 2>/dev/null && return 0
+  printf '%s\n' "$H_SID" >> "$INBOX_DIR/.sessions.seen" 2>/dev/null || true
+  local tb="-" tl="-"
+  if [ -f "$H_TRANSCRIPT" ]; then
+    tb="$(wc -c < "$H_TRANSCRIPT" 2>/dev/null | tr -cd '0-9')"; tb="${tb:--}"
+    tl="$(wc -l < "$H_TRANSCRIPT" 2>/dev/null | tr -cd '0-9')"; tl="${tl:--}"
+  fi
+  append_line "$INBOX_DIR/sessions.log" "$EPOCH|$STAMP|$INBOX_MODE|$H_SID|$H_TRANSCRIPT|$CWD|$tb|$tl"
+}
+
+# ---------- git 事实（全部走 safe 调用，非仓库/无提交都不炸）----------
+git_or_dash() { local r; r="$(git -C "$1" "${@:2}" 2>/dev/null || true)"; printf '%s' "${r:--}"; }
+
+snapshot_git() {  # $1=仓库根 → 打印 branch|head|脏文件数（拿不到都以 - 兑底）
+  local root="$1" br hd dy
+  br="$(git_or_dash "$root" rev-parse --abbrev-ref HEAD)"
+  hd="$(git_or_dash "$root" log -1 --format='%h %s')"
+  dy="$(git -C "$root" status --porcelain 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+  printf '%s|%s|%s' "${br:--}" "${hd:--}" "${dy:-0}"
+}
+
+# ---------- 主流程 ----------
+payload_fields   # 先解 payload：路由靠 cwd，正文靠 prompt / last_assistant_message
+
+if ! resolve_inbox; then
+  # 没装 waypoint：什么都不做，但要留一条痕迹方便排查（写系统临时目录，绝不动用户仓库）
+  printf '%s SKIP no-waypoint-found cwd=%s event=%s\n' "$(ts)" "${PWD:-?}" "$EVENT" \
+    >> "${TMPDIR:-/tmp}/waypoint-hook.log" 2>/dev/null || true
+  exit 0
+fi
+
+mkdir -p "$INBOX_DIR" 2>/dev/null || exit 0
+# 注意：项目模式的收件箱排除由 install.sh 一次性登记进 .git/info/exclude；
+# hook 内绝不做 git 写操作，也不做目录扫描，保证 timeout 内退出。
+
+CWD="${H_CWD:-${PWD:-$(pwd)}}"
+EPOCH="$(bs)"
+STAMP="$(ts)"
+
+# 1) stdin 原样留档：探针事件全量不截断，schema 靠事后看数据来定（本版本的主目的）
+case "$EVENT" in
+  probe)
+    append_line "$INBOX_DIR/hook-probe.log" "$EPOCH|$STAMP|probe|-|$(printf '%s' "$IN" | tr '\n\t' '  ')" ;;
+  *)
+    [ -n "$IN" ] && append_line "$INBOX_DIR/hook-raw.log" \
+      "$EPOCH|$STAMP|$EVENT|$(printf '%s' "$IN" | cut -c1-$RAW_LIMIT | tr '\n\t' '  ')"
+    ;;
+esac
+
+# 2) 用户输入原文（方案讨论场景零成本的"你要什么"捕获）
+if [ "$EVENT" = "prompt" ] || [ "$EVENT" = "probe" ]; then
+  parse=""; p="${H_PROMPT:-}"
+  [ -n "$p" ] && parse="py"
+  if [ -z "$p" ]; then
+    parsed="$(prompt_field)"
+    parse="none"
+    case "$parsed" in
+      *\|*) parse="${parsed%%|*}"; p="${parsed#*|}" ;;
+      *)    p="$parsed" ;;
+    esac
+  fi
+  [ -n "$p" ] && append_line "$INBOX_DIR/prompts.log" "$EPOCH|$STAMP|$INBOX_MODE|$parse|$(esc "$p")"
+fi
+
+# 2b) agent 回答原文：交接的另一半，宿主在 Stop 事件里直接递过来，不调模型
+if [ "$EVENT" = "stop" ] || [ "${H_EVENT:-}" = "Stop" ]; then
+  answer_capture
+fi
+
+# 2c) 会话指针：session_id → transcript_path，事后取全文靠它
+session_capture
+
+# 3) git 事实快照（capture-only 也做，这是最便宜的本机时间线；无仓库则记为 -）
+if [ -n "$PROOT" ] && [ -d "$PROOT" ]; then GITF="$(snapshot_git "$PROOT")"; else GITF="-|-|0"; fi
+append_line "$INBOX_DIR/snapshots.log" "$EPOCH|$STAMP|$INBOX_MODE|$EVENT|$CWD|$GITF|${H_EVENT:--}"
+
+# 4) 后台捕获提交增量：不占 hook 的 timeout
+if [ "$EVENT" != "capture-only" ] && [ -n "$PROOT" ] && [ -d "$PROOT" ]; then
+  (
+    last=""
+    [ -f "$INBOX_DIR/.last-head" ] && last="$(head -1 "$INBOX_DIR/.last-head" 2>/dev/null || true)"
+    now="$(git_or_dash "$PROOT" rev-parse HEAD)"
+    if [ "$now" != "-" ] && [ -n "$now" ] && [ "$now" != "$last" ]; then
+      if [ -n "$last" ]; then
+        git -C "$PROOT" log --format='%h %s' "$last..$now" 2>/dev/null \
+          | while IFS= read -r l; do append_line "$INBOX_DIR/commits.log" "$EPOCH|$STAMP|since|$last|$l"; done
+      else
+        append_line "$INBOX_DIR/commits.log" "$EPOCH|$STAMP|baseline|-|${now:0:7}"
+      fi
+      printf '%s\n' "$now" > "$INBOX_DIR/.last-head" 2>/dev/null || true
+    fi
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+fi
+
+# 5) SessionStart 同步分支：注入"先落盘再回答"的提醒（不注入状态正文，避免与 AGENTS.md 冲突）
+if [ "$EVENT" = "probe" ] && [ -n "${WAYPOINT_HOOK_INJECT:-}" ]; then
+  printf '{"hookEventName":"SessionStart","additionalContext":"[waypoint] 收件箱=%s（模式 %s）。本轮若产出方案/取舍结论，请先写 .waypoint/DECISIONS.md 与 PLAN.md 再回答用户。"}\n' \
+    "$INBOX_DIR" "$INBOX_MODE"
+fi
+
+exit 0

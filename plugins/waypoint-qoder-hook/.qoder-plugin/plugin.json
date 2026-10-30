@@ -1,0 +1,6 @@
+{
+  "name": "waypoint",
+  "displayName": "Waypoint Auto-Capture",
+  "version": "0.1.0",
+  "description": "无 LLM 依赖的自动落盘：把会话事件与用户输入原料追加进 Waypoint 收件箱"
+}
