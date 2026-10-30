@@ -347,5 +347,35 @@ assert_contains "再次 drain 幂等（回答游标也前进了）" "没有待�
 [[ -z "$(git -C "$CP" status --porcelain)" ]] && ok "回答落盘不污染工作区（answers/ 也在 exclude 内）" || bad "回答把仓库弄脏了" "$(git -C "$CP" status --porcelain | head -3)"
 
 echo
+echo "── 11c. 看板数据源：board --json 带出收件箱 ──────"
+# 面板只认 board --json 一个数据源，落盘不进这里就等于面板上看不见
+printf '%s\n' "$CP" >> "$H/repos.txt"
+run board --json > "$TMP/board.json" 2>"$TMP/board.err"
+if [[ -s "$TMP/board.err" ]]; then bad "board --json 不该往 stderr 写东西" "$(head -2 "$TMP/board.err")"; else ok "board --json 的 stderr 干净（游标按收件箱取，不依赖全局 INBOX）"; fi
+PT_N="$(wc -l < "$CP/.waypoint/inbox/prompts.log" | tr -cd '0-9')"
+PC_N="$(cat "$CP/.waypoint/inbox/.cursor/prompts" 2>/dev/null | tr -cd '0-9')"; PC_N="${PC_N:-0}"
+python3 - "$TMP/board.json" "$CP" "$PT_N" "$PC_N" <<'PY' >"$TMP/board.check" 2>&1
+import json, sys
+d = json.load(open(sys.argv[1]))
+owner, want_total, want_cur = sys.argv[2].rstrip("/"), int(sys.argv[3]), int(sys.argv[4])
+ibs = d.get("capture", {}).get("inboxes", [])
+hit = [x for x in ibs if x["owner"].rstrip("/") == owner]
+assert hit, "capture 里没这个仓库的收件箱: %r" % [x["owner"] for x in ibs]
+logs = {l["name"]: l for l in hit[0]["logs"]}
+assert logs["prompts"]["total"] == want_total, (logs["prompts"], want_total)
+assert logs["prompts"]["cursor"] == want_cur, (logs["prompts"], want_cur)
+assert logs["prompts"]["pending"] == want_total - want_cur, logs["prompts"]
+assert any(l["rows"] for l in hit[0]["logs"]), "rows 全空，面板没有可看的正文"
+assert hit[0]["pending"] >= 0
+# 面板是倒序看“刚落了什么”：每类 row 以 ISO 时间开头，必须新的在前
+for l in hit[0]["logs"]:
+    stamps = [r.split()[0] for r in l["rows"]]
+    assert stamps == sorted(stamps, reverse=True), (l["name"], stamps)
+assert int(hit[0]["last"]) > 0 and hit[0]["last_age"], hit[0]
+print("ok")
+PY
+if grep -qx ok "$TMP/board.check"; then ok "面板拿到收件箱计数、游标、待归摞，且落盘按时间倒序"; else bad "board --json 的 capture 不对" "$(cat "$TMP/board.check")"; fi
+
+echo
 echo "═══ 通过 $PASS / 失败 $FAIL ═══"
 [[ $FAIL -eq 0 ]] || exit 1

@@ -50,13 +50,27 @@ echo '.waypoint/locks/' >> "$(git -C <目标项目> rev-parse --show-toplevel)/.
 
 仅当任务涉密、用户明确要求时，才把 `.waypoint/` 加入 `.gitignore`（默认应入库以获得跨机器能力）。
 
-### 4. 验证安装
+### 4. 装 hook 自动落盘（推荐，需用户确认）
+
+采集不该依赖模型记性：装了 hook 后，用户原话、每轮回答全文、git 事实、会话全文指针由宿主直接写进 `.waypoint/inbox/`，**额度耗尽也交得出手**。
 
 ```bash
-ls <目标项目>/.waypoint/          # 应看到 6 个模板文件 + archive/ + locks/
+bash <kit路径>/plugins/install.sh --target <目标项目>            # 先干跑：看会写哪些文件
+bash <kit路径>/plugins/install.sh --target <目标项目> --apply   # 真装（写宿主插件位，需用户同意）
+```
+
+- 执行体每次事件重新执行，`hooks.json` 在会话开始时加载 → **新开会话即生效，不必重启 IDE**
+- 收件箱会自愈式写进 `.git/info/exclude`，不要把 `inbox/` 提交进仓库
+- 宿主不支持 hook 时跳过本节，交接退回手工 checkpoint，并向用户说明差的那一半是“原料靠模型记”
+
+### 5. 验证安装
+
+```bash
+ls <目标项目>/.waypoint/          # 应看到 6 个模板文件 + archive/ + locks/（inbox/ 由 hook 首次落盘时建）
 bash <kit路径>/scripts/waypoint.sh status --target <目标项目>   # 应输出初始化状态（零提交仓库也不报错）
 bash <kit路径>/scripts/waypoint.sh board                        # 若本机有全局库，应列到刚装的仓库
 bash <kit路径>/scripts/waypoint.sh dash export --out /tmp/wp.html   # 应能导出离线快照（别用 --open 打扰用户）
+bash <kit路径>/scripts/waypoint.sh capture show --target <目标项目>  # 装了 hook 应列出各类条数；没装则提示找不到收件箱（正常）
 ```
 
 然后向用户报告：协议已安装，并**提醒先提交安装产生的文件**（`git add -A && git commit`），否则第一次 checkpoint 会被判为脏树。立任务的方式是填 `.waypoint/TASK.md` 和 `PLAN.md`，之后在任何客户端说「继续任务」即可接力。

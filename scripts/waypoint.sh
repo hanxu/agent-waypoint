@@ -452,10 +452,12 @@ cmd_init_home() {
 - 脚本: $(cd "$KIT_DIR" && pwd)/scripts/waypoint.sh（若本路径已失效，重新 clone 后 init-home --home ${HOME_DIR}）
 - 布局: 任务线 tasks/<线>/TASK.md（合同，共享）+ 会话 tasks/<线>/sessions/<端>/{PLAN,HANDOFF,JOURNAL,DECISIONS}.md；当前指针见 CURRENT（格式 <线>/<端>）
 - 锁: ${HOME_DIR}/locks/（已被 .git/info/exclude 排除，不污染 git status；他人租约未过期时不要抢，先问用户）
+- 采集: 默认走 hook 自动落盘（\`${HOME_DIR}/inbox/\` 与仓库的 \`.waypoint/inbox/\`），宿主写的用户原话/回答全文/git 事实/会话全文指针**不经过模型**，额度耗尽也在；模型只做浓缩，不要凭记忆重写原料
 - 端名: 本客户端固定用一个名字（如 qoder / codebuddy / trae），所有命令都带 \`--client <端名>\`；名字不一致会误开新会话
 - 触发词:
-  - 「继续任务」→ 先跑 \`waypoint.sh resume\` **列出可接管会话让用户选**（不得代选、不得直接接 CURRENT），再接管（复述状态后再动手）
-  - 「checkpoint」→ 交出到**本端自己的会话**（绝不改别的端的文件）：更新会话文件 + 把 .session 的 last_epoch/last_checkpoint 改为今天 → 在 ${HOME_DIR} 内 git commit（前缀 waypoint:）→ \`unlock --line <线> --sid <端>\`
+  - 「继续任务」→ 先跑 \`waypoint.sh resume\` **列出可接管会话让用户选**（不得代选、不得直接接 CURRENT），再 \`capture drain\` 归摞原料，最后接管（复述状态后再动手）
+  - 「checkpoint」→ 交出到**本端自己的会话**（绝不改别的端的文件）：先 \`waypoint.sh capture drain\` 把原料归成 JOURNAL 里的机器事实 → 更新会话文件 + 把 .session 的 last_epoch/last_checkpoint 改为今天 → 在 ${HOME_DIR} 内 git commit（前缀 waypoint:）→ \`unlock --line <线> --sid <端>\`
+  - 「自动落盘」/「收件箱」/「这一轮原料」→ \`waypoint.sh capture show\` 看待归摞，\`capture drain\` 归摞（幂等；--full 带出回答正文，--commit 只提交 JOURNAL 与游标）
   - 「任务看板」/「各端进度」→ \`waypoint.sh board\`（--by-client 看端视图，--json 供面板）
   - 「新任务 <线名>」→ \`waypoint.sh new <线名> --client <端>\`
   - 「切换任务 <线名>」→ \`waypoint.sh switch <线名>\`
@@ -808,7 +810,10 @@ EOF
           "$(json_escape "$(git -C "$r" rev-parse --abbrev-ref HEAD 2>/dev/null || true)")"
       done < "$HOME_DIR/repos.txt"
     fi
-    printf ']}'
+    # 自动落盘收件箱也进这里：面板服务只认 board --json 一个数据源
+    printf '],'
+    capture_json
+    printf '}'
     printf '\n'
     return 0
   fi
@@ -1146,8 +1151,9 @@ capture_inbox() {  # 赋值 INBOX：显式 env > 项目模式 > 全局库
   ensure_excluded "$HOME_DIR" "inbox/"
 }
 
-inbox_cursor() {  # $1=日志名 → 已归摞到的行号（无游标视为 0）
-  local f="$INBOX/.cursor/$1"
+inbox_cursor() {  # $1=日志名 [$2=收件箱目录（缺省用全局 INBOX）] → 已归摞到的行号（无游标视为 0）
+  local base="${2:-$INBOX}"
+  local f="$base/.cursor/$1"
   [[ -f "$f" ]] || { echo 0; return; }
   local v; v="$(head -1 "$f" 2>/dev/null | tr -cd '0-9')"; printf '%s' "${v:-0}"
 }
@@ -1292,6 +1298,82 @@ cmd_capture() {
     drain) cmd_capture_drain ;;
     *) die "未知 capture 子命令: ${sub}（show|drain）" ;;
   esac
+}
+
+# 收件箱概况 → JSON，给看板用。按收件箱分开列：落点路由本身就是面板要核对的东西。
+capture_pending() {  # $1=inbox 目录 → 待归摞条数
+  local ib="$1" name t c sum=0
+  for name in prompts answers commits sessions; do
+    t="$(inbox_total "$ib/$name.log")"; c="$(inbox_cursor "$name" "$ib")"
+    [[ "$t" =~ ^[0-9]+$ ]] || t=0
+    [[ "$c" =~ ^[0-9]+$ ]] || c=0
+    (( t > c )) && sum=$(( sum + t - c ))
+  done
+  printf '%s' "$sum"
+}
+
+capture_rows() {  # $1=log 名 $2=文件 → 最近几条、时间倒序（新的在前，面板直接读）
+  local name="$1" f="$2" line a b c d e rest v
+  [[ -f "$f" ]] || return 0
+  case "$name" in
+    prompts|answers|commits|sessions) ;;
+    *) return 0 ;;   # snapshots / hook-* 只给计数与字节，正文太碎
+  esac
+  local first=1
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    a=""; b=""; c=""; d=""; e=""; rest=""; v=""
+    case "$name" in
+      prompts)  IFS='|' read -r a b c d rest <<< "$line"; v="$b 问到 ${rest:0:110}" ;;
+      # answers.log: epoch|stamp|mode|sid|len|cap|file|first（正文不重复贴，给指针）
+      answers)  IFS='|' read -r a b c d e rest <<< "$line"
+                v="$b 答出 ${e} 字 → ${rest##*|}" ;;
+      # commits.log: epoch|stamp|kind|<from|to-subject>
+      commits)  IFS='|' read -r a b c d rest <<< "$line"
+                v="$b ${c} ${d:0:7} → ${rest:0:80}" ;;
+      sessions) IFS='|' read -r a b c d rest <<< "$line"; v="$b 会话 ${d:0:8} ${rest##*|} 行" ;;
+    esac
+    [[ $first -eq 0 ]] && printf ','
+    first=0
+    printf '"%s"' "$(json_escape "$v")"
+  done <<EOF
+$(tail -n 4 "$f" 2>/dev/null | awk '{a[NR]=$0} END{for(i=NR;i>0;i--) print a[i]}')
+EOF
+}
+
+capture_inbox_json() {  # $1=inbox 目录 $2=归属
+  local ib="$1" owner="$2" name t c p bytes logs="" last=0 v one
+  [[ -d "$ib" ]] || return 0
+  for name in $INBOX_LOGS; do
+    t="$(inbox_total "$ib/$name.log")"
+    c="$(inbox_cursor "$name" "$ib")"
+    p=0; (( t > c )) && p=$(( t - c ))
+    bytes=0; [[ -f "$ib/$name.log" ]] && bytes="$(wc -c < "$ib/$name.log" | tr -cd '0-9')"
+    # 各 log 都以 epoch 开头，取最后一行就能得到这个收件箱最后一次被写的时间
+    v="$(tail -1 "$ib/$name.log" 2>/dev/null | cut -d'|' -f1)"
+    [[ "$v" =~ ^[1-9][0-9]*$ ]] && (( v > last )) && last="$v"
+    one="$(printf '{"name":"%s","total":%s,"cursor":%s,"pending":%s,"bytes":%s,"rows":[%s]}' \
+      "$name" "${t:-0}" "${c:-0}" "$p" "$bytes" "$(capture_rows "$name" "$ib/$name.log")")"
+    logs="${logs:+$logs,}$one"
+  done
+  printf '{"path":"%s","owner":"%s","pending":%s,"last":%s,"last_age":"%s","logs":[%s]}' \
+    "$(json_escape "$ib")" "$(json_escape "$owner")" "$(capture_pending "$ib")" \
+    "${last:-0}" "$(json_escape "$(humanize_age "${last:-0}")")" "$logs"
+}
+
+capture_json() {
+  local items="" ib r t
+  items="$(capture_inbox_json "${HOME_DIR}/inbox" '全局库')"
+  if [[ -s "$HOME_DIR/repos.txt" ]]; then
+    while IFS= read -r r; do
+      [[ -n "$r" ]] || continue
+      ib="$r/.waypoint/inbox"
+      [[ "$ib" == "${HOME_DIR}/inbox" ]] && continue
+      t="$(capture_inbox_json "$ib" "$r")"
+      [[ -n "$t" ]] && items="${items:+$items,}$t"
+    done < "$HOME_DIR/repos.txt"
+  fi
+  printf '"capture":{"inboxes":[%s]}' "$items"
 }
 
 # ---------- 分发 ----------

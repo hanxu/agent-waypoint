@@ -15,10 +15,11 @@ Waypoint 是一个跨 AI 客户端的任务接续协议。你在 Qoder 里跑到
 - 📊 **任务看板**：`board` 一行一个执行体，看得到各端进度、计划勾选、多久没动、 谁拿着锁；`--by-client` 出端视图，`--json` 可直接给面板用
 - 🖥️ **看板服务**：`dash` 起本地看板服务（`127.0.0.1:8787`，仅 python3 标准库），**服务端每 5 秒推送** `board --json`（SSE），多开页面也只采集一次；任务线分组、进度条、锁/陈旧标记、点行看详情并一键复制接管命令；`--daemon` 常驻、`dash stop` 停、`dash export` 另存离线快照
 - 🔁 **两个固定仪式**：接管（Resume）与交出（Checkpoint），由触发词显式驱动，交接前强制复述状态
+- 🛰️ **自动落盘（不经模型）**：宿主 hook 把用户原话、每轮回答全文、git 事实、会话全文指针追写进收件箱（`plugins/install.sh --apply` 一次装好），**额度耗尽也交得出手**；`capture show` / `capture drain` 把原料归摞成 JOURNAL 里的机器事实（幂等、带游标），看板「自动落盘 · 收件箱」一节按时间倒序直接看
 - 🚫 **Do Not Redo / Intentionally Dirty**：明确告诉下一个 agent 别重做什么、哪些文件故意不提交
 - 🔒 **git 原子提交**：checkpoint 时状态文件与代码一并 commit，代码是最终真相；租约锁落在 `locks/` 且写入 `.git/info/exclude`，不污染工作区
-- 🧩 **可选自动化**：无依赖 shell 脚本（init/checkpoint/status/new/resume/board/dash/tasks/switch/lock/migrate）预填交接模板；MCP server 演进路线（`get_state` / `list_sessions` / `checkpoint` / `lock`）
-- 🧪 **自带冒烟测试**：`bash tests/smoke.sh` 一条命令跑完 104 项断言（10 组，含 P0 回归、看板服务与 SSE 首帧、旧布局兼容，全部在临时目录内，不碰你的真实库）
+- 🧩 **可选自动化**：无依赖 shell 脚本（init/checkpoint/status/new/resume/board/dash/capture/tasks/switch/lock/migrate）预填交接模板；MCP server 演进路线（`get_state` / `list_sessions` / `checkpoint` / `lock`）
+- 🧪 **自带冒烟测试**：`bash tests/smoke.sh` 一条命令跑完 139 项断言（13 组，含 P0 回归、看板服务与 SSE 首帧、旧布局兼容、自动落盘与看板数据源，全部在临时目录内，不碰你的真实库）
 - 🤖 **Agent 可自装**：`INSTALL_FOR_AGENTS.md` 让任何 agent 按指令完成安装
 
 ## 快速开始
@@ -49,6 +50,8 @@ bash scripts/waypoint.sh resume 登录重构/qoder --client trae   # trae 还没
 ```bash
 cd your-project
 bash /path/to/agent-waypoint/scripts/waypoint.sh init --target .
+bash /path/to/agent-waypoint/plugins/install.sh --target . --apply   # 装 hook：采集不再依赖模型
+bash /path/to/agent-waypoint/scripts/waypoint.sh capture show --target .   # 看收件箱落了什么
 ```
 
 然后在任何客户端里立任务，干活，说「checkpoint」交接，换客户端说「继续任务」接力。详见 [QUICKSTART.md](./QUICKSTART.md) 与协议本体 [templates/PROTOCOL.md](./templates/PROTOCOL.md)。
@@ -63,8 +66,9 @@ agent-waypoint/
 ├── QUICKSTART.md            # 5 分钟上手
 ├── INSTALL_FOR_AGENTS.md    # 给 agent 看的安装指令
 ├── templates/               # 协议与状态文件模板（init 时复制进目标项目）
-├── scripts/waypoint.sh      # init / new / resume / board / dash / checkpoint / status / lock / migrate
+├── scripts/waypoint.sh      # init / new / resume / board / dash / capture / checkpoint / status / lock / migrate
 ├── dashboard/               # 看板服务：index.html 页面模板 + serve.py（HTTP/SSE，仅标准库）
+├── plugins/                 # 宿主 hook 插件：waypoint-qoder-hook/ + install.sh（自动落盘的执行体）
 ├── tests/smoke.sh           # 冒烟测试（无依赖，临时目录内跑）
 └── docs/comparison.md       # 与 agent-handoff-kit 等同类项目的对比
 ```

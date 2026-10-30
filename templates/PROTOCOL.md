@@ -45,6 +45,7 @@ Waypoint 的做法：**把右侧三项外化为仓库内的纯文本文件**，�
 ├── JOURNAL.md       # append-only 编年日志，每轮迭代追加一条
 ├── DECISIONS.md     # 决策记录（选型、放弃的方案及原因）
 ├── locks/           # 租约锁：<会话>.lock（本地运行时产物，不入库）
+├── inbox/           # 自动落盘收件箱：hook 捕获的原始原料（机器本地，不入库）
 └── archive/         # 已完结任务的归档（原 .waypoint 文件移入）
 ```
 
@@ -56,14 +57,27 @@ Waypoint 的做法：**把右侧三项外化为仓库内的纯文本文件**，�
 - **JOURNAL.md** 给「三天后的你」：完整历史，只追加、永不改写
 - 一个负责「新」，一个负责「全」，所以一个重写、一个追加
 
+**`inbox/` 也不入库，但性质与 `locks/` 不同**：`locks/` 是运行时状态，`inbox/` 是**未经模型加工的原料**。宿主在每次工具调用与每轮回答结束时回调 hook，把用户原话、agent 回答全文、git 事实、会话全文指针追写进收件箱；这一步不经过模型，**额度耗尽也照样落盘**，交接原料的采集因此不会被模型可用性卡住。
+
 ## 3. 三个仪式
+
+### 3.0 采集仪式（Capture）
+
+触发：宿主的 hook 事件（SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / SessionEnd）自动执行，**不需要人或模型记得去做**。没装 hook 时本节退化为一行提示，其余仪式照常跑。
+
+1. 原料落点按 payload 的 `cwd` 定位（宿主把 hook 进程的工作目录设成插件安装目录，所以**不能拿进程 `PWD` 找项目**）：已登记仓库 → `<仓库>/.waypoint/inbox/`；定位不到 → 全局库 `~/.waypoint/inbox/`。每条记录都带落点模式，可事后核对
+2. 采到的东西分五类：`prompts.log`（用户原话）、`answers.log` + `answers/`（每轮回答的全文与索引）、`commits.log`（git 事实增量）、`sessions.log`（会话全文 jsonl 指针）、`snapshots.log`（分支 / HEAD / 脏度）
+3. 归摞：`waypoint.sh capture drain --target .` 把新原料写成 JOURNAL 里的机器事实条目（幂等，游标记录归摞位置）；`--full` 连回答正文一起带出，`--commit` 只提交 JOURNAL 与游标
+4. 查看：`capture show` 看待归摞数；页面看板的「自动落盘 · 收件箱」一节按时间倒序列出最近条目与各 log 体量
+
+核心：**模型只负责「浓缩」，不负责「记住」**。交接所需的原始输入与输出已在收件箱里，任何一轮都能被第三方核对。
 
 ### 3.1 接管仪式（Resume）
 
 触发：用户说「继续任务」/「/resume」，或会话开场即有 HANDOFF.md。
 
 1. **先列候选再动手**：全局模式下运行 `waypoint.sh resume`（不带参数）列出所有可接管会话，交给用户选；项目模式直接读本仓库 `.waypoint/HANDOFF.md`
-2. 依序读 `HANDOFF.md` → `TASK.md` → `PLAN.md`，再 `git log --oneline -10` + `git status`
+2. 先归摞上一轮的自动落盘原料：`waypoint.sh capture drain --target .`（未装 hook 则跳过，不报错），再依序读 `HANDOFF.md` → `TASK.md` → `PLAN.md`，最后 `git log --oneline -10` + `git status`
 3. 核对叙事状态与 git 现状；**不一致时以 git 为准**并明确指出差异
 4. 检查锁：若租约属于其他端且未过期，停下询问用户（确认后 `--force` 抢占，别静默抢）
 5. 用固定格式复述（生成即理解，给用户一个纠偏机会）：
@@ -78,7 +92,7 @@ Waypoint 的做法：**把右侧三项外化为仓库内的纯文本文件**，�
 触发：用户说「checkpoint」/「告一段落」/「我要切到 XX 了」；或每完成一个迭代主动做。
 
 1. 确认工作区状态：默认必须干净。确有不应提交的文件，逐个列入 HANDOFF 的 Intentionally Dirty 段
-2. 勾选 `PLAN.md`；向 `JOURNAL.md` **追加**一条（格式见 §4.4）
+2. 勾选 `PLAN.md`；先 `waypoint.sh capture drain --target .` 把本轮自动落盘的原料归成机器事实，再向 `JOURNAL.md` **追加**本轮迭代一条（格式见 §4.4）
 3. **整体重写** `HANDOFF.md`（模板见 §4.3），必须包含 Do Not Redo 与 Intentionally Dirty
 4. （全局模式）更新本会话 `.session` 的 `last_epoch`/`last_checkpoint`（看板与候选排序以此为准）
 5. `git add -A && git commit -m "waypoint: <一句话摘要>"` —— 状态文件与代码原子提交

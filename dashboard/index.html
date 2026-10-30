@@ -155,7 +155,7 @@
   .kv { display: grid; grid-template-columns: 74px 1fr; gap: 6px 10px; font-size: 12.5px; margin-bottom: 16px; }
   .kv dt { color: var(--fg-faint); }
   .kv dd { margin: 0; font-family: var(--mono); font-size: 12px; word-break: break-all; }
-  .d-body h4 { font-size: 11.5px; letter-spacing: .4px; color: var(--fg-faint); font-weight: 600; margin: 18px 0 7px; text-transform: uppercase; }
+  .d-body h4, .cap-card h4 { font-size: 11.5px; letter-spacing: .4px; color: var(--fg-faint); font-weight: 600; margin: 18px 0 7px; text-transform: uppercase; }
   .cmd {
     display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--line);
     border-radius: 8px; padding: 9px 10px; font-family: var(--mono); font-size: 12px; margin-bottom: 7px;
@@ -191,6 +191,17 @@
     input[type="search"] { width: 150px; }
   }
 
+  /* ---------- 自动落盘收件箱 ---------- */
+  .cap-card { background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 12px; padding: 2px 14px 12px; margin: 0 0 12px; }
+  .cap-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 11px 0 7px; border-bottom: 1px solid var(--line-soft); }
+  .cap-head .p { font-family: var(--mono); font-size: 12px; color: var(--fg-dim); overflow-wrap: anywhere; }
+  .cap-log { padding: 9px 0 3px; }
+  .cap-log .h { display: flex; flex-wrap: wrap; gap: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--fg-faint); }
+  .cap-log .h b { color: var(--fg-dim); font-weight: 500; }
+  .cap-log .h .pend { color: var(--warn); }
+  .cap-rows { margin: 5px 0 0; padding: 0; list-style: none; }
+  .cap-rows li { font-family: var(--mono); font-size: 11.5px; color: var(--fg-dim); padding: 2px 0 2px 9px; margin: 2px 0; border-left: 2px solid var(--line); overflow-wrap: anywhere; }
+
   /* 首次渲染前的骨架 */
   #app:empty::after {
     content: "加载中…"; display: block; padding: 40px; text-align: center; color: var(--fg-faint);
@@ -213,6 +224,7 @@
   <div class="stats" id="stats"></div>
   <div class="chips" id="chips"></div>
   <div id="app"></div>
+  <div id="capture"></div>
   <div id="repos"></div>
   <footer id="foot"></footer>
 </div>
@@ -405,6 +417,50 @@
     }
   }
 
+  /* ---------- 自动落盘收件箱（hook 零 LLM 捕获的原料） ---------- */
+  function size(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1048576).toFixed(1) + " MB";
+  }
+  function inboxHtml(ib) {
+    var logs = ib.logs || [], pend = Number(ib.pending) || 0;
+    var body = logs.map(function (l) {
+      var rows = (l.rows || []).map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("");
+      var head = "<b>" + esc(l.name) + "</b> 共 " + esc(l.total) + " · 已归摞 " + esc(l.cursor) +
+        (l.pending ? ' <span class="pend">· 待归摞 ' + esc(l.pending) + "</span>" : "") +
+        " · " + size(l.bytes);
+      return '<div class="cap-log"><div class="h">' + head + "</div>" +
+        (rows ? '<ul class="cap-rows">' + rows + "</ul>"
+              : (Number(l.total) ? '<ul class="cap-rows"><li>（这一类不展开正文，只看计数）</li></ul>' : "")) +
+        "</div>";
+    }).join("");
+    var tgt = ib.owner && ib.owner !== "全局库" ? ' --target "' + ib.owner + '"' : "";
+    return '<section class="cap-card"><div class="cap-head"><span class="p">' + esc(ib.path) + "</span>" +
+      '<span class="tag">' + esc(ib.owner || "") + "</span>" +
+      (ib.last_age ? '<span class="tag">最近 ' + esc(ib.last_age) + "</span>" : "") +
+      (pend ? '<span class="tag stale">待归摞 ' + pend + "</span>" : '<span class="tag">收件箱已归摞</span>') +
+      "</div>" + body + "<h4>归摞（不花模型额度）</h4>" +
+      cmdRow("waypoint capture show" + tgt) +
+      cmdRow("waypoint capture drain" + tgt) +
+      cmdRow('cd "' + ib.path + '" && tail -f snapshots.log') + "</section>";
+  }
+  function renderCapture() {
+    var box = document.getElementById("capture");
+    var list = ((DATA.capture && DATA.capture.inboxes) || []).slice();
+    // 收件箱按最后一次落盘时间倒序：在跑的那个永远排在最上
+    list.sort(function (a, b) { return (Number(b.last) || 0) - (Number(a.last) || 0); });
+    if (!list.length) {
+      box.innerHTML = '<h3 class="sec">自动落盘 · 收件箱</h3>' +
+        '<div class="empty"><p>还没装 hook，或装好了但还没触发过事件。</p>' +
+        cmdRow("bash plugins/install.sh --target . --apply") + "</div>";
+      return;
+    }
+    box.innerHTML = '<h3 class="sec">自动落盘 · 收件箱（hook 捕获，不经模型）</h3>' +
+      list.map(inboxHtml).join("");
+  }
+
   /* ---------- 项目仓库 ---------- */
   function renderRepos() {
     var box = document.getElementById("repos"), list = repos();
@@ -494,6 +550,7 @@
     var af = document.activeElement;
     var fk = af && af.classList && af.classList.contains("row") ? af.getAttribute("data-key") : null;
     renderLines(list, cur);
+    renderCapture();
     renderRepos();
     focusRow(fk);
     if (state.open) {  // 推送更新时让抽屉内容跟着新，而不是留着旧数据

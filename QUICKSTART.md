@@ -15,9 +15,12 @@ bash "$WP" new 优化网关 --client qoder [--project ~/work/tsy-gateway]
 
 # 3. 注入（一次）：把 ~/.waypoint/RULES_SNIPPET.md 的内容贴进 Qoder 用户级 Rules / Trae user_rules.md
 #    并在规则里固定本端的 --client 名字（下文均用同一个名字，否则会给同一端误开新会话）
+
+# 4.（推荐）装 hook 自动落盘，采集这一半从此不经模型：
+#    bash /path/to/agent-waypoint/plugins/install.sh --target <你的仓库> --apply
 ```
 
-日常循环：在任何端说「继续任务」→ 它先 `resume` 列出候选让你选 → 接管后复述状态 → 干活 → 「checkpoint」交出（只写本端会话，并在全局库 commit）。
+日常循环：在任何端说「继续任务」→ 它先 `resume` 列出候选让你选 → 接管后复述状态 → 干活 → 「checkpoint」交出（先 `capture drain` 把 hook 采到的原料归成机器事实，再只写本端会话，并在全局库 commit）。
 
 ```bash
 bash "$WP" board          # ⭐ 各端任务总览：进度、多久没动、谁拿着锁（--by-client 看端视图，--json 给面板）
@@ -26,6 +29,8 @@ bash "$WP" dash --daemon   # 想让它在后台常驻（关掉终端也活着）
 bash "$WP" resume         # 列出可接管会话（多个端交过手 = 多个候选）
 bash "$WP" resume 优化网关/qoder --client trae   # 接手：trae 无会话则从 qoder 的快照继承一份
 bash "$WP" tasks / switch <线> [端] / status / who / lock / unlock / migrate
+bash "$WP" capture show [--target .]    # 🛰️ 收件箱：hook 采到的原料还有多少待归摞
+bash "$WP" capture drain [--target .]  # 归摞进 JOURNAL（幂等，带游标）
 ```
 
 多客户端并行同一条线是可以的：每个端各一份 PLAN/HANDOFF/JOURNAL，锁按「线/端」隔离，互不覆盖。想合并回一份？让一个端接管后把其它端的 JOURNAL 条目抄进来，再归档其余会话（`mv tasks/<线>/sessions/<端> archive/`）。
@@ -43,6 +48,18 @@ bash /path/to/agent-waypoint/scripts/waypoint.sh init --target /path/to/your-pro
 或在任何 agent 客户端里说：
 
 > 按 INSTALL_FOR_AGENTS.md 把 https://github.com/hanxu/agent-waypoint 安装到本项目
+
+### 1.5 装 hook 自动落盘（推荐，一次装好）
+
+采集这一半不必经模型：宿主在每次工具调用与每轮回答结束时回调 hook，把用户原话、回答全文、git 事实、会话全文指针追写进 `.waypoint/inbox/`。**额度耗尽也照样落盘**，接手时不会两手空空。
+
+```bash
+bash /path/to/agent-waypoint/plugins/install.sh --target /path/to/your-project --apply
+bash /path/to/agent-waypoint/scripts/waypoint.sh capture show --target .    # 看落了什么
+bash /path/to/agent-waypoint/scripts/waypoint.sh capture drain --target .   # 归摞进 JOURNAL
+```
+
+装完新开会话即生效（执行体每次事件重新执行，不必重启 IDE）。跳过这步也行，交接退回手工 checkpoint，只是原料得靠模型记性。
 
 ### 2. 立项（2 分钟）
 
