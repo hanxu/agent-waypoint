@@ -310,6 +310,11 @@ case "$(tail -3 "$CP/.waypoint/inbox/prompts.log" 2>/dev/null)" in
   *"|project-registered|py|从 workspace 根路由"*) ok "路由：payload cwd 是父目录时经登记表定位到项目收件箱" ;;
   *) bad "路由未生效" "$(tail -3 "$CP/.waypoint/inbox/prompts.log" 2>/dev/null)" ;;
 esac
+# 每条原料带会话与项目上下文（全局库里要能看出是哪个会话在哪个项目产生的）
+case "$(tail -1 "$CP/.waypoint/inbox/prompts.log" 2>/dev/null)" in
+  *"|-|$TMP"*) ok "prompts.log 行尾带 sid|cwd 上下文列" ;;
+  *) bad "prompts.log 缺上下文列" "$(tail -1 "$CP/.waypoint/inbox/prompts.log" 2>/dev/null)" ;;
+esac
 
 # agent 回答：Stop 自带 last_assistant_message，原文必须保留换行（所以落 .md 不落索引行）
 # JSON 里只能给 \n 转义（给真换行会让 json.loads 直接失败）
@@ -328,6 +333,10 @@ case "$(cat "$CP/.waypoint/inbox/answers.log" 2>/dev/null)" in
   *"|deadbeef-1111|"*) ok "answers.log 索引导向原文文件" ;;
   *) bad "索引行缺失" "$(tail -2 "$CP/.waypoint/inbox/answers.log" 2>/dev/null)" ;;
 esac
+case "$(tail -1 "$CP/.waypoint/inbox/answers.log" 2>/dev/null)" in
+  *"|deadbeef-1111|$CP"*) ok "answers.log 行尾带会话与项目列" ;;
+  *) bad "answers.log 缺上下文列" "$(tail -1 "$CP/.waypoint/inbox/answers.log" 2>/dev/null)" ;;
+esac
 case "$(cat "$CP/.waypoint/inbox/sessions.log" 2>/dev/null)" in
   *"|$TRANSCRIPT|"*"|3") ok "sessions.log 记下 transcript 指针与行数" ;;
   *) bad "会话指针缺失" "$(tail -2 "$CP/.waypoint/inbox/sessions.log" 2>/dev/null)" ;;
@@ -340,9 +349,10 @@ sleep 1
 assert_contains "capture show 把回答列为待归摞" "answers.log: 共 1 行｜已归摞 0｜待归摞 1" run capture show --target "$CP"
 assert_contains "drain --full 把正文内联进输出" "第二段带 **markdown** 与表格" run capture drain --target "$CP" --full --commit
 assert_contains "drain 后 show 仍能看到回答行数" "answers.log: 共 1 行" run capture show --target "$CP"
+grep -q '\[.*@deadbeef' "$CP/.waypoint/JOURNAL.md" 2>/dev/null && ok "JOURNAL 原料行带项目@会话标记" || bad "JOURNAL 缺会话标记"
 grep -q '原文：' "$CP/.waypoint/JOURNAL.md" 2>/dev/null && ok "JOURNAL 里留有回答原文的路径" || bad "JOURNAL 缺原文路径"
 grep -q '第二段带 \*\*markdown\*\* 与表格' "$CP/.waypoint/JOURNAL.md" 2>/dev/null && ok "JOURNAL 里拿到回答正文（--full）" || bad "JOURNAL 缺回答正文"
-grep -q "$TRANSCRIPT" "$CP/.waypoint/JOURNAL.md" 2>/dev/null && ok "JOURNAL 里留了会话全文指针" || bad "JOURNAL 缺会话指针"
+grep -q 'deadbeef-1111' "$CP/.waypoint/JOURNAL.md" 2>/dev/null && ok "JOURNAL 里留了会话指针（sid，全文路径在 sessions.log）" || bad "JOURNAL 缺会话指针"
 assert_contains "再次 drain 幂等（回答游标也前进了）" "没有待归摞的原料" run capture drain --target "$CP"
 [[ -z "$(git -C "$CP" status --porcelain)" ]] && ok "回答落盘不污染工作区（answers/ 也在 exclude 内）" || bad "回答把仓库弄脏了" "$(git -C "$CP" status --porcelain | head -3)"
 

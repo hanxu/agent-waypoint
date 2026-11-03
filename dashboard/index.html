@@ -46,19 +46,16 @@
     font: 14px/1.55 -apple-system, "SF Pro SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 22px 80px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 22px 22px 64px; }
 
-  /* ---------- 页头 ---------- */
-  header.top { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; justify-content: space-between; }
-  header.top > div { min-width: 0; max-width: 100%; }
-  .brand { display: flex; align-items: baseline; gap: 10px; }
-  .brand h1 { margin: 0; font-size: 20px; letter-spacing: .2px; font-weight: 650; }
+  /* ---------- 页头：标题 + 工具，一行收纳 ---------- */
+  header.top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .brand h1 { margin: 0; font-size: 19px; letter-spacing: .2px; font-weight: 650; }
   .brand span { color: var(--fg-faint); font-size: 12px; }
-  .meta { color: var(--fg-faint); font-size: 12px; font-family: var(--mono); overflow-wrap: anywhere; min-width: 0; }
-  .meta b { color: var(--fg-dim); font-weight: 500; word-break: break-all; }
   .tools { display: flex; gap: 8px; align-items: center; }
   input[type="search"] {
-    width: 260px; padding: 8px 11px; font-size: 13px; color: var(--fg);
+    width: 240px; padding: 7px 11px; font-size: 13px; color: var(--fg);
     background: var(--bg-soft); border: 1px solid var(--line); border-radius: 8px; outline: none;
   }
   input[type="search"]:focus { border-color: var(--accent); }
@@ -70,20 +67,28 @@
   button.primary { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
   button.primary:hover { filter: brightness(1.08); color: var(--on-accent); }
 
-  /* ---------- 统计 ---------- */
-  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 20px 0 8px; }
-  .tile {
-    background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 10px;
-    padding: 12px 14px;
+  /* ---------- Tab：一屏只聚焦一类信息 ---------- */
+  nav.tabs { display: flex; gap: 4px; margin: 18px 0 14px; border-bottom: 1px solid var(--line); }
+  .tab-btn {
+    border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+    padding: 8px 12px 9px; font-size: 13.5px; color: var(--fg-faint);
   }
-  .tile .k { color: var(--fg-faint); font-size: 11.5px; letter-spacing: .3px; }
-  .tile .v { font-size: 22px; font-weight: 620; font-variant-numeric: tabular-nums; margin-top: 2px; }
-  .tile .v small { font-size: 12px; color: var(--fg-faint); font-weight: 400; }
+  .tab-btn:hover { color: var(--fg-dim); background: none; border-color: transparent; }
+  .tab-btn.on { color: var(--fg); border-bottom-color: var(--accent); }
+  .tab-btn .b {
+    display: inline-block; min-width: 17px; margin-left: 6px; padding: 0 5px; text-align: center;
+    font-size: 11px; line-height: 16px; border-radius: 8px; background: var(--bg-hover);
+    color: var(--fg-dim); font-variant-numeric: tabular-nums;
+  }
+  .tab-btn.on .b { color: var(--fg); }
+  .tab-btn .b.hot { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
 
-  /* ---------- 过滤 ---------- */
-  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 18px; }
+  /* ---------- 会话区：统计一行带过 ---------- */
+  .statline { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--fg-faint); margin: 2px 0 12px; }
+  .statline b { color: var(--fg-dim); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
   .chip {
-    padding: 5px 11px; font-size: 12.5px; border-radius: 999px; cursor: pointer;
+    padding: 4px 11px; font-size: 12.5px; border-radius: 999px; cursor: pointer;
     color: var(--fg-dim); background: transparent; border: 1px solid var(--line);
   }
   .chip:hover { color: var(--fg); }
@@ -93,11 +98,11 @@
   /* ---------- 任务线 ---------- */
   .line-card {
     background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 12px;
-    margin-bottom: 14px; overflow: hidden;
+    margin-bottom: 12px; overflow: hidden;
   }
   .line-head {
     display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0;
-    padding: 13px 16px; border-bottom: 1px solid var(--line-soft);
+    padding: 12px 16px; border-bottom: 1px solid var(--line-soft);
   }
   .line-head .t { font-size: 15px; font-weight: 600; }
   .line-head .id { font-family: var(--mono); font-size: 12px; color: var(--fg-faint); }
@@ -108,8 +113,8 @@
   .line-head .cnt { margin-left: auto; font-size: 12px; color: var(--fg-faint); }
 
   .row {
-    display: grid; grid-template-columns: 132px 150px 104px 1fr 92px;
-    gap: 12px; align-items: center; padding: 11px 16px;
+    display: grid; grid-template-columns: 132px 150px 104px 1fr auto;
+    gap: 12px; align-items: center; padding: 10px 16px;
     border-top: 1px solid var(--line-soft); cursor: pointer;
   }
   .row:first-of-type { border-top: none; }
@@ -138,6 +143,48 @@
   .tag.lock { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
   .tag.stale { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 
+  /* ---------- 项目仓库 ---------- */
+  .repo {
+    display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; align-items: start;
+    background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 12px; padding: 13px 16px; margin-bottom: 10px;
+  }
+  .repo .name { font-size: 14.5px; font-weight: 620; }
+  .repo .path { font-family: var(--mono); font-size: 11.5px; color: var(--fg-faint); word-break: break-all; margin-top: 1px; }
+  .repo .badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .repo .meta2 { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin-top: 4px; min-width: 0; }
+  .repo .meta2 .prog { flex: none; width: 150px; }
+  .repo .meta2 .age { flex: none; }
+  .repo .rnext { flex: 1; min-width: 0; font-size: 12.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .repo .rnext.none { color: var(--fg-faint); font-style: italic; }
+
+  /* ---------- 自动落盘收件箱 ---------- */
+  .cap-note { font-size: 12px; color: var(--fg-faint); margin: 0 0 12px; }
+  .cap-card { background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 12px; padding: 0 16px 12px; margin: 0 0 12px; }
+  .cap-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 12px 0 9px; border-bottom: 1px solid var(--line-soft); }
+  .cap-head .owner { font-size: 14px; font-weight: 620; }
+  .cap-head .p { font-family: var(--mono); font-size: 11.5px; color: var(--fg-faint); overflow-wrap: anywhere; }
+  .sess-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 2px; }
+  .sess-bar .lb { font-size: 11.5px; color: var(--fg-faint); margin-right: 2px; }
+  .chip.sm { padding: 2px 9px; font-size: 11.5px; }
+  .chip .sid { font-family: var(--mono); }
+  table.captab { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+  table.captab th {
+    text-align: left; font-weight: 500; font-size: 11px; letter-spacing: .3px; color: var(--fg-faint);
+    padding: 8px 8px 6px; border-bottom: 1px solid var(--line-soft); white-space: nowrap;
+  }
+  table.captab td { padding: 7px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; color: var(--fg-dim); }
+  table.captab tr:last-child td { border-bottom: none; }
+  table.captab td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.captab td.nm { font-family: var(--mono); color: var(--fg); white-space: nowrap; }
+  .pend { color: var(--warn); font-weight: 600; }
+  .droppable { color: var(--fg-faint); }
+  .cap-rows { margin: 5px 0 0; padding: 0; list-style: none; }
+  .cap-rows li { font-family: var(--mono); font-size: 11.5px; color: var(--fg-dim); padding: 2px 0 2px 9px; margin: 2px 0; border-left: 2px solid var(--line); overflow-wrap: anywhere; }
+  .cap-rows li .dim { color: var(--fg-faint); }
+  .rowbtn { padding: 2px 8px; font-size: 11px; }
+  .cap-actions { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 11px; }
+  .cap-actions .hint { font-size: 11.5px; color: var(--fg-faint); margin-right: auto; }
+
   /* ---------- 抽屉 ---------- */
   #drawer {
     position: fixed; top: 0; right: 0; bottom: 0; width: 420px; max-width: 92vw;
@@ -155,7 +202,7 @@
   .kv { display: grid; grid-template-columns: 74px 1fr; gap: 6px 10px; font-size: 12.5px; margin-bottom: 16px; }
   .kv dt { color: var(--fg-faint); }
   .kv dd { margin: 0; font-family: var(--mono); font-size: 12px; word-break: break-all; }
-  .d-body h4, .cap-card h4 { font-size: 11.5px; letter-spacing: .4px; color: var(--fg-faint); font-weight: 600; margin: 18px 0 7px; text-transform: uppercase; }
+  .d-body h4 { font-size: 11.5px; letter-spacing: .4px; color: var(--fg-faint); font-weight: 600; margin: 18px 0 7px; text-transform: uppercase; }
   .cmd {
     display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--line);
     border-radius: 8px; padding: 9px 10px; font-family: var(--mono); font-size: 12px; margin-bottom: 7px;
@@ -164,45 +211,21 @@
   .cmd button { flex: none; padding: 3px 7px; font-size: 11px; }
   .nextfull { white-space: pre-wrap; font-size: 13px; color: var(--fg-dim); background: var(--bg); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
 
-  /* ---------- 项目仓库 ---------- */
-  h3.sec { font-size: 12px; letter-spacing: .3px; color: var(--fg-dim); font-weight: 600; margin: 26px 0 10px; }
-  .repo {
-    display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; align-items: center;
-    background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px 15px; margin-bottom: 9px;
-  }
-  .repo .p { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
-  .repo .p b { color: var(--fg-faint); font-weight: 400; }
-  .repo .n { grid-column: 1 / -1; font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .repo .badges { display: flex; gap: 6px; }
-
-  /* ---------- 空态 ---------- */
-  .empty { border: 1px dashed var(--line); border-radius: 12px; padding: 34px 22px; text-align: center; color: var(--fg-dim); }
+  /* ---------- 空态 / 页脚 ---------- */
+  .empty { border: 1px dashed var(--line); border-radius: 12px; padding: 30px 22px; text-align: center; color: var(--fg-dim); }
   .empty h2 { margin: 0 0 6px; font-size: 15px; color: var(--fg); font-weight: 600; }
   .empty p { margin: 0 0 14px; font-size: 12.5px; color: var(--fg-faint); }
   .empty .cmd { max-width: 520px; margin: 0 auto 8px; text-align: left; }
-
-  footer { margin-top: 30px; color: var(--fg-faint); font-size: 11.5px; text-align: center; }
+  footer { margin-top: 26px; color: var(--fg-faint); font-size: 11.5px; font-family: var(--mono); text-align: center; overflow-wrap: anywhere; }
 
   @media (max-width: 860px) {
-    .stats { grid-template-columns: repeat(2, 1fr); }
     .row { grid-template-columns: 1fr 1fr; gap: 6px 12px; }
     .next { grid-column: 1 / -1; white-space: normal; }
     .state { justify-content: flex-start; }
+    .repo .meta2 { flex-wrap: wrap; }
     input[type="search"] { width: 150px; }
   }
 
-  /* ---------- 自动落盘收件箱 ---------- */
-  .cap-card { background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 12px; padding: 2px 14px 12px; margin: 0 0 12px; }
-  .cap-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 11px 0 7px; border-bottom: 1px solid var(--line-soft); }
-  .cap-head .p { font-family: var(--mono); font-size: 12px; color: var(--fg-dim); overflow-wrap: anywhere; }
-  .cap-log { padding: 9px 0 3px; }
-  .cap-log .h { display: flex; flex-wrap: wrap; gap: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--fg-faint); }
-  .cap-log .h b { color: var(--fg-dim); font-weight: 500; }
-  .cap-log .h .pend { color: var(--warn); }
-  .cap-rows { margin: 5px 0 0; padding: 0; list-style: none; }
-  .cap-rows li { font-family: var(--mono); font-size: 11.5px; color: var(--fg-dim); padding: 2px 0 2px 9px; margin: 2px 0; border-left: 2px solid var(--line); overflow-wrap: anywhere; }
-
-  /* 首次渲染前的骨架 */
   #app:empty::after {
     content: "加载中…"; display: block; padding: 40px; text-align: center; color: var(--fg-faint);
   }
@@ -211,21 +234,15 @@
 <body>
 <div class="wrap">
   <header class="top">
-    <div>
-      <div class="brand"><h1>Waypoint</h1><span>任务看板</span></div>
-      <div class="meta" id="meta"></div>
-    </div>
+    <div class="brand"><h1>Waypoint</h1><span>任务看板</span></div>
     <div class="tools">
-      <input type="search" id="q" placeholder="搜索任务线 / 端 / 下一步   （按 / ）" autocomplete="off">
+      <input type="search" id="q" placeholder="搜索   （按 / ）" autocomplete="off">
       <button id="refresh" class="primary">刷新数据</button>
     </div>
   </header>
 
-  <div class="stats" id="stats"></div>
-  <div class="chips" id="chips"></div>
+  <nav class="tabs" id="tabs" role="tablist"></nav>
   <div id="app"></div>
-  <div id="capture"></div>
-  <div id="repos"></div>
   <footer id="foot"></footer>
 </div>
 
@@ -249,12 +266,24 @@
   var LIVE = false;            // 由服务端 SSE 推送点亮；离线打开时恒为 false
   var ES = null;
   var DAY = 86400;
-  var state = { q: "", filter: "all", open: null };
+  var DRAIN_LOGS = ["prompts", "answers", "commits"];  // 只有这三本参与归摞（与 capture drain 口径一致）
+  var state = { tab: "", q: "", filter: "all", open: null, expanded: {}, sess: {} };
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
+  }
+  function clean(s) {  // 列表位只放纯文本：去反引号、压空白、剥「任务：」装饰前缀
+    return String(s == null ? "" : s).replace(/`/g, "").replace(/\s+/g, " ").trim();
+  }
+  function cleanTitle(s) {
+    return clean(s).replace(/^任务[：:]\s*/, "").replace(/^["「]|["「]$/g, "");
+  }
+  function basename(p) {
+    p = String(p || "").replace(/\/+$/, "");
+    var i = p.lastIndexOf("/");
+    return i >= 0 ? p.slice(i + 1) : p;
   }
   function hue(s) {
     var h = 0;
@@ -271,7 +300,7 @@
     if (d < DAY * 30) return Math.floor(d / DAY) + " 天前";
     return Math.floor(d / (DAY * 30)) + " 个月前";
   }
-  function abs(epoch) {  // 绝对时间，补是“多久之前”的参照
+  function abs(epoch) {
     if (!epoch) return "-";
     var t = new Date(epoch * 1000), p = function (n) { return (n < 10 ? "0" : "") + n; };
     return t.getFullYear() + "-" + p(t.getMonth() + 1) + "-" + p(t.getDate()) +
@@ -281,20 +310,35 @@
     var m = /^(\d+)\/(\d+)$/.exec(s || "");
     return m ? { done: +m[1], total: +m[2], pct: +m[2] ? Math.round(+m[1] * 100 / +m[2]) : 0 } : null;
   }
+  function size(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1048576).toFixed(1) + " MB";
+  }
   function lk(s) { return typeof s === "string" && s.indexOf("alive:") === 0; }
   function lkOwner(s) { return lk(s) ? s.slice(6) : ""; }
   function sessions() { return (DATA.sessions || []).slice(); }
   function repos() { return (DATA.repos || []).slice(); }
-
-  function matches(s) {
-    var f = state.filter;
-    if (f === "lock" && !lk(s.lock)) return false;
-    if (f === "stale" && !s.stale) return false;
-    if (f === "live" && s.stale) return false;
-    if (!state.q) return true;
-    var hay = [s.line, s.sid, s.title, s.client, s.next, s.project].join(" ").toLowerCase();
-    return hay.indexOf(state.q) >= 0;
+  function inboxes() {
+    var list = ((DATA.capture && DATA.capture.inboxes) || []).slice();
+    list.sort(function (a, b) { return (Number(b.last) || 0) - (Number(a.last) || 0); });
+    return list;
   }
+  function droppable(logs) {  // 待归摞只算可归摞的三本，与 inbox.pending 同口径
+    var sum = 0;
+    (logs || []).forEach(function (l) {
+      if (DRAIN_LOGS.indexOf(l.name) >= 0) sum += Number(l.pending) || 0;
+    });
+    return sum;
+  }
+  function currentTab() {
+    if (state.tab) return state.tab;
+    if (sessions().length) return "sessions";
+    if (repos().length) return "repos";
+    return "capture";
+  }
+  function hit(text) { return !state.q || clean(text).toLowerCase().indexOf(state.q) >= 0; }
 
   function copy(text, btn) {
     var done = function () { if (btn) { var t = btn.textContent; btn.textContent = "已复制"; setTimeout(function () { btn.textContent = t; }, 1200); } };
@@ -304,90 +348,113 @@
       window.prompt("复制下面的命令：", text);
     }
   }
-
   function cmdRow(text) {
     return '<div class="cmd"><code>' + esc(text) + '</code><button data-copy="' + esc(text) + '">复制</button></div>';
   }
+  function copyBtn(text, label) {
+    return '<button class="rowbtn" data-copy="' + esc(text) + '">' + esc(label) + "</button>";
+  }
+  function emptyBox(title, tip, cmd) {
+    return '<div class="empty"><h2>' + esc(title) + "</h2><p>" + esc(tip) + "</p>" +
+      (cmd ? cmdRow(cmd) : "") + "</div>";
+  }
 
-  /* ---------- 统计 ---------- */
-  function renderStats(list) {
+  /* ---------- Tab 条 ---------- */
+  function renderTabs(counts) {
+    var defs = [
+      ["sessions", "任务", counts.sessions],
+      ["repos", "项目仓库", counts.repos],
+      ["capture", "自动落盘", counts.pending, counts.pending > 0]
+    ];
+    document.getElementById("tabs").innerHTML = defs.map(function (d) {
+      var badge = d[2] ? '<span class="b' + (d[3] ? " hot" : "") + '">' + d[2] + "</span>" : "";
+      return '<button role="tab" class="tab-btn' + (currentTab() === d[0] ? " on" : "") +
+        '" data-t="' + d[0] + '" aria-selected="' + (currentTab() === d[0]) + '">' + d[1] + badge + "</button>";
+    }).join("");
+  }
+
+  /* ---------- 任务（全局会话） ---------- */
+  function matches(s) {
+    var f = state.filter;
+    if (f === "lock" && !lk(s.lock)) return false;
+    if (f === "stale" && !s.stale) return false;
+    if (f === "live" && s.stale) return false;
+    return hit([s.line, s.sid, s.title, s.client, s.next, s.project].join(" "));
+  }
+
+  function renderSessions(list) {
+    var app = document.getElementById("app");
+    if (!list.length) {
+      app.innerHTML = emptyBox("库里还没有任务",
+        "先立一条任务线，之后每端的 checkpoint 都会变成一个可接管的会话。",
+        "waypoint new <任务线> --client <端>");
+      return;
+    }
     var lines = {}, locked = 0, stale = 0;
     list.forEach(function (s) {
       lines[s.line] = 1;
       if (lk(s.lock)) locked++;
       if (s.stale) stale++;
     });
-    var tiles = [
-      ["任务线", Object.keys(lines).length],
-      ["可接管会话", list.length],
-      ["正在被持有", locked, locked ? "有锁" : ""],
-      ["陈旧", stale, DATA.stale_days ? ">" + DATA.stale_days + " 天" : ""],
-      ["项目仓库", repos().length]
-    ];
-    document.getElementById("stats").innerHTML = tiles.map(function (t) {
-      return '<div class="tile"><div class="k">' + t[0] + '</div><div class="v">' + t[1] +
-        (t[2] ? ' <small>' + esc(t[2]) + "</small>" : "") + "</div></div>";
-    }).join("");
-  }
-
-  /* ---------- 过滤条 ---------- */
-  function renderChips(list) {
+    var shown = list.filter(matches);
     var c = {
       all: list.length,
       lock: list.filter(function (s) { return lk(s.lock); }).length,
       stale: list.filter(function (s) { return s.stale; }).length,
       live: list.filter(function (s) { return !s.stale; }).length
     };
-    var defs = [["all", "全部"], ["live", "近期活跃"], ["stale", "陈旧"], ["lock", "被锁"]];
-    document.getElementById("chips").innerHTML = defs.map(function (d) {
-      return '<button class="chip' + (state.filter === d[0] ? " on" : "") + '" data-f="' + d[0] + '">' +
-        d[1] + '<span class="n">' + c[d[0]] + "</span></button>";
-    }).join("");
+    var html = '<div class="statline">' +
+      "<span>任务线 <b>" + Object.keys(lines).length + "</b></span>" +
+      "<span>会话 <b>" + list.length + "</b></span>" +
+      "<span>被锁 <b>" + locked + "</b></span>" +
+      "<span>陈旧 <b>" + stale + "</b>" + (DATA.stale_days ? "（>" + DATA.stale_days + " 天）" : "") + "</span>" +
+      "</div>";
+    html += '<div class="chips">' + [["all", "全部"], ["live", "近期活跃"], ["stale", "陈旧"], ["lock", "被锁"]]
+      .map(function (d) {
+        return '<button class="chip' + (state.filter === d[0] ? " on" : "") + '" data-f="' + d[0] + '">' +
+          d[1] + '<span class="n">' + c[d[0]] + "</span></button>";
+      }).join("") + "</div>";
+    app.innerHTML = html + '<div id="lines"></div>';
+    renderLines(shown, list);
   }
 
-  /* ---------- 任务线与会话行 ---------- */
   function rowHtml(s, cur) {
     var p = plan(s.plan);
     var bar = p
       ? '<div class="prog"><div class="bar"><i style="width:' + p.pct + '%"></i></div>' +
         '<span class="n">' + p.done + "/" + p.total + "</span></div>"
-      : '<div class="prog"><span class="n" style="color:var(--fg-faint)">无计划</span></div>';
+      : '<div class="prog"><span class="n" style="color:var(--fg-faint)">—</span></div>';
     var tags = "";
     if (lk(s.lock)) tags += '<span class="tag lock">锁 ' + esc(lkOwner(s.lock)) + "</span>";
     if (s.stale) tags += '<span class="tag stale">陈旧</span>';
     if (s.parent) tags += '<span class="tag">继承 ' + esc(s.parent) + "</span>";
     var h = hue(s.client || s.sid);
+    var nx = clean(s.next);
     return '<div class="row' + (state.open === s.line + "/" + s.sid ? " open" : "") + '" data-key="' +
       esc(s.line + "/" + s.sid) + '" role="button" tabindex="0" aria-label="打开 ' + esc(s.client || s.sid) + ' 的详情">' +
       '<div class="who"><span class="dot" style="background:hsl(' + h + ',62%,58%)"></span>' +
         '<span class="name" title="' + esc(s.sid) + '">' + esc(s.client || s.sid) + "</span>" +
         (s.line + "/" + s.sid === cur ? '<span class="cur">当前</span>' : "") + "</div>" +
       bar +
-      '<div class="age' + (s.stale ? " stale" : "") + '">' + esc(ago(s.last_epoch)) + "</div>" +
-      (s.next ? '<div class="next" title="' + esc(s.next) + '">' + esc(s.next) + "</div>"
-              : '<div class="next none">下一步未填写</div>') +
+      '<div class="age' + (s.stale ? " stale" : "") + '" title="' + esc(abs(s.last_epoch)) + '">' + esc(s.last_age || ago(s.last_epoch)) + "</div>" +
+      (nx ? '<div class="next" title="' + esc(nx) + '">' + esc(nx) + "</div>"
+          : '<div class="next none">下一步未填写</div>') +
       '<div class="state">' + tags + "</div></div>";
   }
 
-  function renderLines(list, cur) {
-    var app = document.getElementById("app");
-    var shown = list.filter(matches);
-    if (!list.length) {
-      app.innerHTML = '<div class="empty"><h2>库里还没有任务</h2>' +
-        '<p>先立一条任务线，之后每端的 checkpoint 都会变成一个可接管的会话。</p>' +
-        cmdRow("waypoint new <任务线> --client <端>") + "</div>";
-      return;
-    }
+  function renderLines(shown, all) {
+    var box = document.getElementById("lines");
     if (!shown.length) {
-      app.innerHTML = '<div class="empty"><h2>没有匹配的会话</h2><p>换个关键词，或点「全部」。</p></div>';
+      box.innerHTML = emptyBox("没有匹配的会话", "换个关键词，或点「全部」。");
       return;
     }
+    var cs = all.filter(function (s) { return s.cur; })[0];
+    var cur = cs ? cs.line + "/" + cs.sid : "";
     var order = [], by = {};
     shown.forEach(function (s) {
       if (!by[s.line]) { by[s.line] = []; order.push(s.line); }
       by[s.line].push(s);
     });
-    // 线内：当前会话优先，其次被锁，其次最近活动
     order.forEach(function (l) {
       by[l].sort(function (a, b) {
         var ka = (a.line + "/" + a.sid === cur ? 4 : 0) + (lk(a.lock) ? 2 : 0);
@@ -395,21 +462,20 @@
         return kb - ka || b.last_epoch - a.last_epoch;
       });
     });
-    // 线之间：最活跃的在前
     order.sort(function (a, b) { return by[b][0].last_epoch - by[a][0].last_epoch; });
 
-    app.innerHTML = order.map(function (l) {
+    box.innerHTML = order.map(function (l) {
       var arr = by[l], head = arr[0];
       return '<section class="line-card"><div class="line-head">' +
-        '<span class="t">' + esc(head.title || "(未立项)") + "</span>" +
+        '<span class="t">' + esc(cleanTitle(head.title) || "(未立项)") + "</span>" +
         '<span class="id">' + esc(l) + "</span>" +
-        (head.project ? '<span class="proj">锚定 ' + esc(head.project) + "</span>" : "") +
+        (head.project ? '<span class="proj" title="' + esc(head.project) + '">锚定 ' + esc(basename(head.project)) + "</span>" : "") +
         '<span class="cnt">' + arr.length + " 个会话</span></div>" +
         arr.map(function (s) { return rowHtml(s, cur); }).join("") + "</section>";
     }).join("");
   }
 
-  function focusRow(key) {  // 重绘后把焦点还给同一行（否则 5 秒轮询会抢走键盘焦点）
+  function focusRow(key) {  // 重绘后把焦点还给同一行（否则推送刷新会抢走键盘焦点）
     if (!key) return;
     var rows = document.querySelectorAll(".row");
     for (var i = 0; i < rows.length; i++) {
@@ -417,67 +483,139 @@
     }
   }
 
-  /* ---------- 自动落盘收件箱（hook 零 LLM 捕获的原料） ---------- */
-  function size(n) {
-    n = Number(n) || 0;
-    if (n < 1024) return n + " B";
-    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
-    return (n / 1048576).toFixed(1) + " MB";
-  }
-  function inboxHtml(ib) {
-    var logs = ib.logs || [], pend = Number(ib.pending) || 0;
-    var body = logs.map(function (l) {
-      var rows = (l.rows || []).map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("");
-      var head = "<b>" + esc(l.name) + "</b> 共 " + esc(l.total) + " · 已归摞 " + esc(l.cursor) +
-        (l.pending ? ' <span class="pend">· 待归摞 ' + esc(l.pending) + "</span>" : "") +
-        " · " + size(l.bytes);
-      return '<div class="cap-log"><div class="h">' + head + "</div>" +
-        (rows ? '<ul class="cap-rows">' + rows + "</ul>"
-              : (Number(l.total) ? '<ul class="cap-rows"><li>（这一类不展开正文，只看计数）</li></ul>' : "")) +
-        "</div>";
-    }).join("");
-    var tgt = ib.owner && ib.owner !== "全局库" ? ' --target "' + ib.owner + '"' : "";
-    return '<section class="cap-card"><div class="cap-head"><span class="p">' + esc(ib.path) + "</span>" +
-      '<span class="tag">' + esc(ib.owner || "") + "</span>" +
-      (ib.last_age ? '<span class="tag">最近 ' + esc(ib.last_age) + "</span>" : "") +
-      (pend ? '<span class="tag stale">待归摞 ' + pend + "</span>" : '<span class="tag">收件箱已归摞</span>') +
-      "</div>" + body + "<h4>归摞（不花模型额度）</h4>" +
-      cmdRow("waypoint capture show" + tgt) +
-      cmdRow("waypoint capture drain" + tgt) +
-      cmdRow('cd "' + ib.path + '" && tail -f snapshots.log') + "</section>";
-  }
-  function renderCapture() {
-    var box = document.getElementById("capture");
-    var list = ((DATA.capture && DATA.capture.inboxes) || []).slice();
-    // 收件箱按最后一次落盘时间倒序：在跑的那个永远排在最上
-    list.sort(function (a, b) { return (Number(b.last) || 0) - (Number(a.last) || 0); });
-    if (!list.length) {
-      box.innerHTML = '<h3 class="sec">自动落盘 · 收件箱</h3>' +
-        '<div class="empty"><p>还没装 hook，或装好了但还没触发过事件。</p>' +
-        cmdRow("bash plugins/install.sh --target . --apply") + "</div>";
-      return;
-    }
-    box.innerHTML = '<h3 class="sec">自动落盘 · 收件箱（hook 捕获，不经模型）</h3>' +
-      list.map(inboxHtml).join("");
-  }
-
   /* ---------- 项目仓库 ---------- */
   function renderRepos() {
-    var box = document.getElementById("repos"), list = repos();
-    if (!list.length) { box.innerHTML = ""; return; }
-    box.innerHTML = '<h3 class="sec">项目模式仓库 · repos.txt</h3>' + list.map(function (r) {
+    var app = document.getElementById("app"), list = repos();
+    if (!list.length) {
+      app.innerHTML = emptyBox("没有登记的项目模式仓库",
+        "在项目仓库里跑 init，再用 repos add 登记进全局库，这里就会出现它的状态。",
+        "waypoint repos ls");
+      return;
+    }
+    var shown = list.filter(function (r) {
+      return hit([r.path, r.title, r.next, r.branch, r.client].join(" "));
+    });
+    if (!shown.length) {
+      app.innerHTML = emptyBox("没有匹配的仓库", "换个关键词试试。");
+      return;
+    }
+    app.innerHTML = shown.map(function (r) {
       var p = plan(r.plan);
-      var badges = '<span class="tag' + (r.worktree === "dirty" ? " stale" : "") + '">' +
-        (r.worktree === "dirty" ? "未提交改动" : "工作区干净") + "</span>" +
-        (r.installed ? "" : '<span class="tag">未安装</span>');
-      return '<div class="repo"><div class="p">' + esc(r.path) +
-        (r.branch ? ' <b>· ' + esc(r.branch) + "</b>" : "") + "</div>" +
+      var badges = '<span class="tag">' + esc(r.client || "未知端") + "</span>" +
+        (r.branch ? '<span class="tag">' + esc(r.branch) + "</span>" : "") +
+        (r.worktree === "dirty" ? '<span class="tag stale">未提交改动</span>' : "") +
+        (r.installed ? "" : '<span class="tag lock">未安装</span>');
+      var nx = clean(r.next);
+      var base = "cd '" + r.path + "' && ";
+      return '<div class="repo"><div><div class="name">' + esc(cleanTitle(r.title) || basename(r.path)) + "</div>" +
+        '<div class="path">' + esc(r.path) + "</div></div>" +
         '<div class="badges">' + badges + "</div>" +
-        '<div class="n">' + esc(r.title || "(未立项)") +
-        (p ? "  计划 " + p.done + "/" + p.total : "") +
-        (r.last_age ? "  ·  " + esc(r.last_age) : "") +
-        (r.next ? "  ·  下一步: " + esc(r.next) : "") + "</div></div>";
+        '<div class="meta2">' +
+        (p ? '<div class="prog"><div class="bar"><i style="width:' + p.pct + '%"></i></div>' +
+             '<span class="n">' + p.done + "/" + p.total + "</span></div>" : "") +
+        (r.last_age ? '<div class="age">' + esc(r.last_age) + "</div>" : "") +
+        (nx ? '<div class="rnext" title="' + esc(nx) + '">下一步 ' + esc(nx) + "</div>"
+            : '<div class="rnext none">下一步未填写</div>') +
+        "</div>" +
+        '<div class="badges" style="grid-column:1/-1;justify-content:flex-start">' +
+        copyBtn(base + "scripts/waypoint.sh status", "看状态") + "</div></div>";
     }).join("");
+  }
+
+  /* ---------- 自动落盘收件箱 ---------- */
+  /* 行格式：时间 · 项目 · 会话 · 正文——前缀弱色、正文主色，旧格式行（无上下文列）整行统一色 */
+  function rowLi(r) {
+    var parts = String(r).split(" · ");
+    if (parts.length >= 4 && /^[\dT:+-]{10,}/.test(parts[0])) {
+      var ctx = parts.slice(0, 3).join(" · ").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      var body = parts.slice(3).join(" · ").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return '<li><span class="dim">' + ctx + "</span> · " + body + "</li>";
+    }
+    return "<li>" + esc(r) + "</li>";
+  }
+  function inboxSessions(ib) {  // 从最近条目行里提取出现过的 项目@会话，供按会话过滤
+    var out = [], seen = {};
+    (ib.logs || []).forEach(function (l) {
+      (l.rows || []).forEach(function (r) {
+        var m = r.match(/^(\S+) · (\S+) · (\S+) · /);
+        if (!m || m[2] === "-") return;
+        var k = m[2] + "@" + m[3];
+        if (!seen[k]) { seen[k] = 1; out.push({ key: k, proj: m[2], sid: m[3] }); }
+      });
+    });
+    return out;
+  }
+  function renderCapture() {
+    var app = document.getElementById("app"), list = inboxes();
+    if (!list.length) {
+      app.innerHTML = emptyBox("还没有收件箱数据",
+        "装好宿主 hook 后，用户原话与每轮回答会不经模型自动落盘到这里；额度耗尽也交得出手。",
+        "bash plugins/install.sh --target . --apply");
+      return;
+    }
+    var total = 0, active = 0;
+    list.forEach(function (ib) {
+      var pd = droppable(ib.logs);
+      total += pd;
+      if (pd > 0) active++;
+    });
+    var html = '<p class="cap-note">hook 捕获的原料，不经模型、不花额度；「待归摞」是 checkpoint 前要用 ' +
+      "capture drain" + " 归进 JOURNAL 的条数。每条原料都带 项目 · 会话 上下文，可点会话标签只看某一个会话。</p>";
+    html += list.map(function (ib) {
+      var pd = droppable(ib.logs);
+      var key = ib.path;
+      var sess = inboxSessions(ib);
+      var activeSess = state.sess[key] || "";
+      var sessBar = sess.length > 1 || (sess.length === 1 && activeSess)
+        ? '<div class="sess-bar"><span class="lb">会话</span>' +
+          '<button class="chip sm' + (!activeSess ? " on" : "") + '" data-sess="' + esc(key) + '|">全部</button>' +
+          sess.map(function (x) {
+            return '<button class="chip sm' + (activeSess === x.key ? " on" : "") +
+              '" data-sess="' + esc(key) + "|" + esc(x.key) + '" title="' + esc(x.key) + '">'
+              + esc(x.proj) + ' <span class="sid">' + esc(x.sid) + "</span></button>";
+          }).join("") + "</div>"
+        : "";
+      var tgt = ib.owner && ib.owner !== "全局库" ? " --target '" + ib.owner + "'" : "";
+      var rows = (ib.logs || []).filter(function (l) { return hit(l.name); }).map(function (l) {
+        var drainable = DRAIN_LOGS.indexOf(l.name) >= 0;
+        var lp = Number(l.pending) || 0;
+        var left = drainable
+          ? (lp ? '<span class="pend">待归摞 ' + lp + "</span>" : '<span class="droppable">已归摞</span>')
+          : "取证 · " + esc(l.total) + " 行";
+        var right = (drainable ? "共 " + esc(l.total) + " · 游标 " + esc(l.cursor) + " · " : "") + size(l.bytes);
+        var rowsShown = (l.rows || []).filter(function (r) {
+          if (!activeSess) return true;
+          var m = r.match(/^(\S+) · (\S+) · (\S+) · /);
+          return m && (m[2] + "@" + m[3]) === activeSess;
+        });
+        var tr = '<tr><td class="nm">' + esc(l.name) + "</td><td>" + left + "</td>" +
+          '<td class="num">' + right + "</td>" +
+          '<td>' + (rowsShown.length
+            ? '<button class="rowbtn" data-x="' + esc(key + "#" + l.name) + '">' +
+              (state.expanded[key + "#" + l.name] ? "收起" : "最近 " + rowsShown.length + " 条") + "</button>"
+            : "") + "</td></tr>";
+        if (rowsShown.length && state.expanded[key + "#" + l.name]) {
+          tr += '<tr><td colspan="4" style="padding:0 8px 8px"><ul class="cap-rows">' +
+            rowsShown.map(rowLi).join("") + "</ul></td></tr>";
+        }
+        return tr;
+      }).join("");
+      return '<section class="cap-card"><div class="cap-head">' +
+        '<span class="owner">' + esc(ib.owner === "全局库" ? "全局库" : basename(ib.owner)) + "</span>" +
+        '<span class="p">' + esc(ib.path) + "</span>" +
+        (pd ? '<span class="tag stale">待归摞 ' + pd + "</span>" : '<span class="tag">已归摞</span>') +
+        (ib.last_age ? '<span class="tag">最近 ' + esc(ib.last_age) + "</span>" : "") +
+        "</div>" + sessBar +
+        '<table class="captab"><thead><tr><th>日志</th><th>归摞状态</th><th>体量</th><th></th></tr></thead>' +
+        "<tbody>" + rows + "</tbody></table>" +
+        '<div class="cap-actions"><span class="hint">归摞不花模型额度</span>' +
+        copyBtn("waypoint capture show" + tgt, "show") +
+        copyBtn("waypoint capture drain" + tgt + "  # 归进 JOURNAL", "drain") +
+        copyBtn("tail -f '" + ib.path + "/snapshots.log'", "tail 快照") +
+        "</div></section>";
+    }).join("");
+    app.innerHTML = html;
+    void active;
   }
 
   /* ---------- 抽屉 ---------- */
@@ -499,13 +637,13 @@
     document.getElementById("d-close").focus();
   }
   function fillDrawer(s) {
-    document.getElementById("d-title").innerHTML = esc(s.title || "(未立项)") +
+    document.getElementById("d-title").innerHTML = esc(cleanTitle(s.title) || "(未立项)") +
       ' <span class="tag" style="margin-left:6px">' + esc(s.client) + "</span>";
     document.getElementById("d-sub").textContent = s.line + " / " + s.sid;
     var p = plan(s.plan);
     var kv = [
       ["会话目录", s.dir || "-"],
-      ["最近活动", ago(s.last_epoch) + "（" + abs(s.last_epoch) + "）"],
+      ["最近活动", esc(s.last_age || ago(s.last_epoch)) + "（" + abs(s.last_epoch) + "）"],
       ["计划", p ? p.done + " / " + p.total + "（" + p.pct + "%）" : "无计划"],
       ["JOURNAL", (s.journal || 0) + " 条"],
       ["继承自", s.parent || "—"],
@@ -539,45 +677,59 @@
 
   /* ---------- 渲染总入口 ---------- */
   function render() {
-    var list = sessions();
-    document.getElementById("meta").innerHTML =
-      "库 <b>" + esc(DATA.home || "-") + "</b> · 快照 <b>" + esc(DATA.generated_at || "-") + "</b>" +
-      (LIVE ? ' · <b style="color:var(--ok)">实时推送</b>' : ' · <b>离线快照</b>');
-    renderStats(list);
-    renderChips(list);
-    var cs = list.filter(function (s) { return s.cur; })[0];
-    var cur = cs ? cs.line + "/" + cs.sid : "";
-    var af = document.activeElement;
-    var fk = af && af.classList && af.classList.contains("row") ? af.getAttribute("data-key") : null;
-    renderLines(list, cur);
-    renderCapture();
-    renderRepos();
-    focusRow(fk);
+    var pending = 0;
+    inboxes().forEach(function (ib) { pending += droppable(ib.logs); });
+    var counts = { sessions: sessions().length, repos: repos().length, pending: pending };
+    renderTabs(counts);
+    var tab = currentTab();
+    if (tab === "sessions") renderSessions(sessions());
+    else if (tab === "repos") renderRepos();
+    else renderCapture();
+    document.getElementById("foot").innerHTML =
+      (LIVE ? '<b style="color:var(--ok)">实时推送</b> · ' : '<b>离线快照</b> · ') +
+      "waypoint board --json · 库 " + esc(DATA.home || "-") + " · 生成于 " + esc(DATA.generated_at || "-");
     if (state.open) {  // 推送更新时让抽屉内容跟着新，而不是留着旧数据
-      var so = list.filter(function (x) { return x.line + "/" + x.sid === state.open; })[0];
+      var so = sessions().filter(function (x) { return x.line + "/" + x.sid === state.open; })[0];
       if (so) fillDrawer(so); else closeDrawer();
     }
-    document.getElementById("foot").textContent = LIVE
-      ? "数据来自 waypoint board --json · 由本机看板服务推送（SSE，每 5 秒一次）"
-      : "数据来自 waypoint board --json · 离线快照（" + (DATA.generated_at || "-") +
-        "）；终端执行 waypoint dash 起服务后即为实时";
     var rb = document.getElementById("refresh");
     rb.textContent = LIVE ? "实时 · 重连" : "复制启动命令";
     rb.title = LIVE ? "数据由本机服务推送，点一下强制重连" : "在终端执行 waypoint dash --open 起服务";
   }
 
   /* ---------- 交互 ---------- */
+  document.getElementById("tabs").addEventListener("click", function (e) {
+    var b = e.target.closest(".tab-btn");
+    if (!b) return;
+    state.tab = b.getAttribute("data-t");
+    state.q = "";
+    document.getElementById("q").value = "";
+    render();
+  });
   document.getElementById("q").addEventListener("input", function (e) {
     state.q = e.target.value.trim().toLowerCase();
-    renderLines(sessions(), "");
-  });
-  document.getElementById("chips").addEventListener("click", function (e) {
-    var b = e.target.closest(".chip");
-    if (!b) return;
-    state.filter = b.getAttribute("data-f");
+    if (state.q && !state.tab) state.tab = currentTab() === "capture" && !sessions().length ? currentTab() : "sessions";
     render();
   });
   document.getElementById("app").addEventListener("click", function (e) {
+    var sp = e.target.closest("[data-sess]");
+    if (sp) {  // 按会话过滤某个收件箱的原料（项目路径key|会话，空会话=全部）
+      var v = sp.getAttribute("data-sess");
+      var i = v.indexOf("|");
+      var ibk = v.slice(0, i), sv = v.slice(i + 1);
+      if (sv) state.sess[ibk] = sv; else delete state.sess[ibk];
+      renderCapture();
+      return;
+    }
+    var x = e.target.closest("[data-x]");
+    if (x) {  // 展开/收起某个收件箱日志的最近条目
+      var k = x.getAttribute("data-x");
+      state.expanded[k] = !state.expanded[k];
+      renderCapture();
+      return;
+    }
+    var chip = e.target.closest(".chip");
+    if (chip) { state.filter = chip.getAttribute("data-f"); render(); return; }
     var r = e.target.closest(".row");
     if (r) openDrawer(r.getAttribute("data-key"));
   });
@@ -594,14 +746,6 @@
     var first = f[0], last = f[f.length - 1];
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  });
-  document.getElementById("drawer").addEventListener("click", function (e) {
-    var b = e.target.closest("[data-copy]");
-    if (b) copy(b.getAttribute("data-copy"), b);
-  });
-  document.getElementById("repos").addEventListener("click", function (e) {
-    var b = e.target.closest("[data-copy]");
-    if (b) copy(b.getAttribute("data-copy"), b);
   });
   document.addEventListener("click", function (e) {
     var b = e.target.closest("[data-copy]");

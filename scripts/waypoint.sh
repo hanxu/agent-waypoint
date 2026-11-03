@@ -1215,17 +1215,19 @@ cmd_capture_drain() {
       new=$(( tot - cur )); picked=1
       if [[ "$name" == "prompts" ]]; then
         echo "- 用户输入 ${new} 条（第 $((cur+1))-${tot} 行）："
-        sed -n "$((cur+1)),\$p" "$f" | tail -n 30 | while IFS='|' read -r _ pes pmode pparse ptxt; do
-          [[ -n "$ptxt" ]] && echo "    - ${pes} ${ptxt}"
+        # epoch|stamp|mode|parse|text|sid|cwd
+        sed -n "$((cur+1)),\$p" "$f" | tail -n 30 | while IFS='|' read -r _ pes _pmode _pp ptxt psid pcwd; do
+          [[ -n "$ptxt" ]] && echo "    - ${pes} [${pcwd##*/}@${psid:0:8}] ${ptxt}"
         done
       elif [[ "$name" == "answers" ]]; then
         # agent 回答：交接的另一半，正文在 .md 里；--full 时连正文一起携进 JOURNAL
         echo "- agent 回答 ${new} 条（第 $((cur+1))-${tot} 行）："
-        sed -n "$((cur+1)),\$p" "$f" | tail -n 20 | while IFS='|' read -r _ aes aemode asid alen acap afile afirst; do
+        # epoch|stamp|mode|sid|len|cap|file|first|sid|cwd
+        sed -n "$((cur+1)),\$p" "$f" | tail -n 20 | while IFS='|' read -r _ aes _am _asid alen acap afile afirst asid acwd; do
           [[ -n "$afile" ]] || continue
           local_cut=""
           [[ "$acap" == "1" ]] && local_cut="，已截断"
-          echo "    - ${aes}（${alen} 字${local_cut}）${afirst}"
+          echo "    - ${aes} [${acwd##*/}@${asid:0:8}]（${alen} 字${local_cut}）${afirst}"
           echo "      原文：${afile}"
           if [[ $DO_FULL -eq 1 && -f "$afile" ]]; then
             sed 's/^/        /' "$afile" | head -400
@@ -1233,7 +1235,8 @@ cmd_capture_drain() {
         done
       else
         echo "- 期间提交："
-        sed -n "$((cur+1)),\$p" "$f" | tail -n 30 | while IFS='|' read -r _ ces ckind _cfrom ccmt; do
+        # epoch|stamp|kind|from|<h subject>|sid|cwd
+        sed -n "$((cur+1)),\$p" "$f" | tail -n 30 | while IFS='|' read -r _ ces ckind _cfrom ccmt _csid _ccwd; do
           [[ -n "$ccmt" ]] || continue
           if [[ "$ckind" == "baseline" ]]; then
             echo "    - （基线 ${ccmt} 之后的增量）"
@@ -1246,9 +1249,10 @@ cmd_capture_drain() {
     f="$INBOX/sessions.log"
     if [[ -f "$f" ]]; then
       echo "- 会话全文（接手时直接读，不依赖模型）："
-      tail -n 3 "$f" | while IFS='|' read -r _ sst smode ssid strans sscd ssb ssl; do
-        [[ -n "$strans" ]] || continue
-        echo "    - ${ssid} · ${strans}（${ssl:-?} 行 / ${ssb:-?} 字节，${sst} 首次见到）"
+      # epoch|stamp|mode|sid|transcript|payload_cwd|bytes|hook_cwd|lines
+      tail -n 3 "$f" | while IFS='|' read -r _ sst _smode ssid _strans scwd6 ssb _scwd8 ssl; do
+        [[ -n "$_strans" ]] || continue
+        echo "    - ${ssid} · ${scwd6##*/}（${ssl:-?} 行 / ${ssb:-?} 字节，${sst} 首次见到）"
       done
     fi
     f="$INBOX/snapshots.log"
@@ -1301,9 +1305,9 @@ cmd_capture() {
 }
 
 # 收件箱概况 → JSON，给看板用。按收件箱分开列：落点路由本身就是面板要核对的东西。
-capture_pending() {  # $1=inbox 目录 → 待归摞条数
+capture_pending() {  # $1=inbox 目录 → 待归摞条数（只算 drain 真正会归摞的三本；sessions.log 无游标，永远算不清，不计入）
   local ib="$1" name t c sum=0
-  for name in prompts answers commits sessions; do
+  for name in prompts answers commits; do
     t="$(inbox_total "$ib/$name.log")"; c="$(inbox_cursor "$name" "$ib")"
     [[ "$t" =~ ^[0-9]+$ ]] || t=0
     [[ "$c" =~ ^[0-9]+$ ]] || c=0
@@ -1313,7 +1317,8 @@ capture_pending() {  # $1=inbox 目录 → 待归摞条数
 }
 
 capture_rows() {  # $1=log 名 $2=文件 → 最近几条、时间倒序（新的在前，面板直接读）
-  local name="$1" f="$2" line a b c d e rest v
+  # 行格式：时间 · 项目 · 会话前8位 · 正文（旧行末尾无 sid|cwd 两列时，项目/会话显示 -）
+  local name="$1" f="$2" line a b c d e f6 f7 f8 f9 f10 f11 f12 v proj sid12 rest
   [[ -f "$f" ]] || return 0
   case "$name" in
     prompts|answers|commits|sessions) ;;
@@ -1322,16 +1327,22 @@ capture_rows() {  # $1=log 名 $2=文件 → 最近几条、时间倒序（新�
   local first=1
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    a=""; b=""; c=""; d=""; e=""; rest=""; v=""
+    a=""; b=""; c=""; d=""; e=""; f6=""; f7=""; f8=""; f9=""; f10=""; f11=""; f12=""; rest=""; v=""
+    IFS='|' read -r a b c d e f6 f7 f8 f9 f10 f11 f12 rest <<< "$line"
+    proj="-"; sid12="-"
     case "$name" in
-      prompts)  IFS='|' read -r a b c d rest <<< "$line"; v="$b 问到 ${rest:0:110}" ;;
-      # answers.log: epoch|stamp|mode|sid|len|cap|file|first（正文不重复贴，给指针）
-      answers)  IFS='|' read -r a b c d e rest <<< "$line"
-                v="$b 答出 ${e} 字 → ${rest##*|}" ;;
-      # commits.log: epoch|stamp|kind|<from|to-subject>
-      commits)  IFS='|' read -r a b c d rest <<< "$line"
-                v="$b ${c} ${d:0:7} → ${rest:0:80}" ;;
-      sessions) IFS='|' read -r a b c d rest <<< "$line"; v="$b 会话 ${d:0:8} ${rest##*|} 行" ;;
+      # epoch|stamp|mode|parse|text|sid|cwd
+      prompts)  proj="${f7:--}"; sid12="${f6:--}"; proj="${proj##*/}"
+                v="$b · $proj · ${sid12:0:8} · 问到 ${e:0:110}" ;;
+      # epoch|stamp|mode|sid|len|cap|file|first|sid|cwd → 新行第 9/10 列是会话与项目，首行正文在第 8 列（旧行无末两列，正文兜底取 g 系）
+      answers)  proj="${f10:--}"; sid12="${f9:-${d:--}}"; proj="${proj##*/}"
+                v="$b · $proj · ${sid12:0:8} · 答出 ${e} 字 → ${f8:-${rest:-${f7:-${f6:-}}}}" ;;
+      # since：epoch|stamp|kind|from|<h subject>|sid|cwd；baseline：同列位（d=-，e=短 hash）
+      commits)  proj="${f7:--}"; sid12="${f6:--}"; proj="${proj##*/}"
+                v="$b · $proj · ${sid12:0:8} · ${c} ${d:0:7} → ${e:-${rest:0:80}}" ;;
+      # epoch|stamp|mode|sid|transcript|payload_cwd|bytes|hook_cwd|lines
+      sessions) proj="${f6:--}"; sid12="${d:--}"; proj="${proj##*/}"
+                v="$b · $proj · ${sid12:0:8} · 会话全文 ${f9:-?} 行" ;;
     esac
     [[ $first -eq 0 ]] && printf ','
     first=0

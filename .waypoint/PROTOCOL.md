@@ -66,7 +66,7 @@ Waypoint 的做法：**把右侧三项外化为仓库内的纯文本文件**，�
 触发：宿主的 hook 事件（SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / SessionEnd）自动执行，**不需要人或模型记得去做**。没装 hook 时本节退化为一行提示，其余仪式照常跑。
 
 1. 原料落点按 payload 的 `cwd` 定位（宿主把 hook 进程的工作目录设成插件安装目录，所以**不能拿进程 `PWD` 找项目**）：已登记仓库 → `<仓库>/.waypoint/inbox/`；定位不到 → 全局库 `~/.waypoint/inbox/`。每条记录都带落点模式，可事后核对
-2. 采到的东西分五类：`prompts.log`（用户原话）、`answers.log` + `answers/`（每轮回答的全文与索引）、`commits.log`（git 事实增量）、`sessions.log`（会话全文 jsonl 指针）、`snapshots.log`（分支 / HEAD / 脏度）
+2. 采到的东西分五类：`prompts.log`（用户原话）、`answers.log` + `answers/`（每轮回答的全文与索引）、`commits.log`（git 事实增量）、`sessions.log`（会话全文 jsonl 指针）、`snapshots.log`（分支 / HEAD / 脏度）。每行末尾都带 `session_id|工作目录` 两列（旧行没有则显示为 `-`），看板与 JOURNAL 里据此认出每条原料属于哪个项目、哪个会话
 3. 归摞：`waypoint.sh capture drain --target .` 把新原料写成 JOURNAL 里的机器事实条目（幂等，游标记录归摞位置）；`--full` 连回答正文一起带出，`--commit` 只提交 JOURNAL 与游标
 4. 查看：`capture show` 看待归摞数；页面看板的「自动落盘 · 收件箱」一节按时间倒序列出最近条目与各 log 体量
 

@@ -216,7 +216,8 @@ sys.stdout.write("%d|%d|%s|%s" % (len(body), cap,
     p.replace("|", "/"), first.replace("\n", " ").replace("|", "/")[:160]))
 ' "$INBOX_DIR/answers" "${EPOCH}-$$-$(printf '%s' "${H_SID:-nosid}" | cut -c1-8)" "$ANSWER_LIMIT" 2>/dev/null || true)"
   [ -n "$out" ] || return 0
-  append_line "$INBOX_DIR/answers.log" "$EPOCH|$STAMP|$INBOX_MODE|${H_SID:-$EVENT}|$out"
+  # 行尾追加 sid|cwd：全局库里要能看出这条是哪个会话、在哪个项目产生的（旧行无这两列，消费方按缺省处理）
+  append_line "$INBOX_DIR/answers.log" "$EPOCH|$STAMP|$INBOX_MODE|${H_SID:-$EVENT}|$out|${H_SID:--}|${CWD:--}"
 }
 
 # ---------- 会话与 transcript 指针（接手时取全文的唯一入口）----------
@@ -229,7 +230,8 @@ session_capture() {
     tb="$(wc -c < "$H_TRANSCRIPT" 2>/dev/null | tr -cd '0-9')"; tb="${tb:--}"
     tl="$(wc -l < "$H_TRANSCRIPT" 2>/dev/null | tr -cd '0-9')"; tl="${tl:--}"
   fi
-  append_line "$INBOX_DIR/sessions.log" "$EPOCH|$STAMP|$INBOX_MODE|$H_SID|$H_TRANSCRIPT|$CWD|$tb|$tl"
+  # 第 6 列是 payload 的 cwd（项目位置）；hook 进程自身 cwd 插在行数前作对照，行尾末列仍保持行数（旧消费方拿惯的锚点）
+  append_line "$INBOX_DIR/sessions.log" "$EPOCH|$STAMP|$INBOX_MODE|$H_SID|$H_TRANSCRIPT|${H_CWD:--}|$tb|$CWD|$tl"
 }
 
 # ---------- git 事实（全部走 safe 调用，非仓库/无提交都不炸）----------
@@ -283,7 +285,7 @@ if [ "$EVENT" = "prompt" ] || [ "$EVENT" = "probe" ]; then
       *)    p="$parsed" ;;
     esac
   fi
-  [ -n "$p" ] && append_line "$INBOX_DIR/prompts.log" "$EPOCH|$STAMP|$INBOX_MODE|$parse|$(esc "$p")"
+  [ -n "$p" ] && append_line "$INBOX_DIR/prompts.log" "$EPOCH|$STAMP|$INBOX_MODE|$parse|$(esc "$p")|${H_SID:--}|${CWD:--}"
 fi
 
 # 2b) agent 回答原文：交接的另一半，宿主在 Stop 事件里直接递过来，不调模型
@@ -296,7 +298,7 @@ session_capture
 
 # 3) git 事实快照（capture-only 也做，这是最便宜的本机时间线；无仓库则记为 -）
 if [ -n "$PROOT" ] && [ -d "$PROOT" ]; then GITF="$(snapshot_git "$PROOT")"; else GITF="-|-|0"; fi
-append_line "$INBOX_DIR/snapshots.log" "$EPOCH|$STAMP|$INBOX_MODE|$EVENT|$CWD|$GITF|${H_EVENT:--}"
+append_line "$INBOX_DIR/snapshots.log" "$EPOCH|$STAMP|$INBOX_MODE|$EVENT|$CWD|$GITF|${H_EVENT:--}|${H_SID:--}"
 
 # 4) 后台捕获提交增量：不占 hook 的 timeout
 if [ "$EVENT" != "capture-only" ] && [ -n "$PROOT" ] && [ -d "$PROOT" ]; then
@@ -307,9 +309,9 @@ if [ "$EVENT" != "capture-only" ] && [ -n "$PROOT" ] && [ -d "$PROOT" ]; then
     if [ "$now" != "-" ] && [ -n "$now" ] && [ "$now" != "$last" ]; then
       if [ -n "$last" ]; then
         git -C "$PROOT" log --format='%h %s' "$last..$now" 2>/dev/null \
-          | while IFS= read -r l; do append_line "$INBOX_DIR/commits.log" "$EPOCH|$STAMP|since|$last|$l"; done
+          | while IFS= read -r l; do append_line "$INBOX_DIR/commits.log" "$EPOCH|$STAMP|since|$last|$l|${H_SID:--}|${CWD:--}"; done
       else
-        append_line "$INBOX_DIR/commits.log" "$EPOCH|$STAMP|baseline|-|${now:0:7}"
+        append_line "$INBOX_DIR/commits.log" "$EPOCH|$STAMP|baseline|-|${now:0:7}|${H_SID:--}|${CWD:--}"
       fi
       printf '%s\n' "$now" > "$INBOX_DIR/.last-head" 2>/dev/null || true
     fi
